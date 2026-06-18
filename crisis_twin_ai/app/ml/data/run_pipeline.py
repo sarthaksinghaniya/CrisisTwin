@@ -63,7 +63,7 @@ def main():
         print("SMOTE applied. Synthetic dataset generated successfully.")
         
         print("\n" + "=" * 50)
-        print("Done! One command → fully SMOTE-balanced dataset ready.")
+        print("Done! One command -> fully SMOTE-balanced dataset ready.")
         print("Final Production Outputs:")
         print("  - vectorizer.pkl")
         print("  - X_resampled.npy")
