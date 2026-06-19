@@ -20,3 +20,7 @@ crisis_twin_ai/app/ml/data/processed/
 # IDEs
 .vscode/
 .idea/
+
+# ML data
+*.npy
+app/ml/data/

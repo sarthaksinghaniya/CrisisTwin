@@ -1,0 +1,10 @@
+feat(cm-dashboard): implement core AI backend with FAISS memory and multi-agent pipeline
+
+- Finalized SQLAlchemy ORM models for CM-Dashboard
+- Implemented modular multi-agent system (classification, severity, routing)
+- Built PipelineManager for orchestrating agent workflow
+- Integrated FAISS-based vector memory for incident similarity search
+- Added ML inference layer with BERT embedding support
+- Connected memory system with agent pipeline
+- Structured project for scalability and production deployment
+- Prepared system for async execution (Celery-ready)

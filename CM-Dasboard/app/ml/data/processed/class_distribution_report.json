@@ -1,0 +1,13 @@
+{
+    "total_samples": 87321,
+    "distribution": {
+        "0": {
+            "count": 21475,
+            "percentage": 24.59
+        },
+        "1": {
+            "count": 65846,
+            "percentage": 75.41
+        }
+    }
+}
