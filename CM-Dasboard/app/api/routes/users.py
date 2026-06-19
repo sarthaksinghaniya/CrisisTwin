@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from uuid import UUID
 from typing import List
 
 from app.db.session import get_db
@@ -24,7 +23,7 @@ async def create_user(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     return user
 
 @router.get("/{user_id}", response_model=UserResponse)
-async def read_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
+async def read_user(user_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).filter(User.id == user_id))
     user = result.scalars().first()
     if not user:
@@ -37,7 +36,7 @@ async def list_users(skip: int = 0, limit: int = 100, db: AsyncSession = Depends
     return result.scalars().all()
 
 @router.patch("/{user_id}", response_model=UserResponse)
-async def update_user(user_id: UUID, user_in: UserUpdate, db: AsyncSession = Depends(get_db)):
+async def update_user(user_id: int, user_in: UserUpdate, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).filter(User.id == user_id))
     user = result.scalars().first()
     if not user:
@@ -52,7 +51,7 @@ async def update_user(user_id: UUID, user_in: UserUpdate, db: AsyncSession = Dep
     return user
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
+async def delete_user(user_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).filter(User.id == user_id))
     user = result.scalars().first()
     if not user:

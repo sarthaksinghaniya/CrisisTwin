@@ -21,6 +21,7 @@ logger = logging.getLogger("cm_dashboard.main")
 # -----------------------------------------------------------------------------
 from app.services.ml.inference import MLInferenceService
 from app.services.memory.retriever import ContextRetriever
+from app.api.routes import api_router
 from app.services.memory.faiss_memory import FaissMemory
 from app.services.agents.decision_agent import DecisionAgent
 from app.schemas.incident import (
@@ -186,6 +187,7 @@ app = FastAPI(
 )
 
 app.include_router(complaints_router)
+app.include_router(api_router, prefix=settings.API_V1_STR)
 
 @app.get("/health", tags=["System"])
 async def health_check():

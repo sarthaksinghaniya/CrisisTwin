@@ -17,7 +17,7 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
 
 class UserResponse(UserBase):
-    id: UUID
+    id: int
     created_at: datetime
     updated_at: datetime
 
