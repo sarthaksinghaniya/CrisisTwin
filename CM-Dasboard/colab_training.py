@@ -1,5 +1,5 @@
 """
-Crisis Classification Fine-Tuning Pipeline
+Complaint Classification Fine-Tuning Pipeline
 Designed to run in Google Colab or any local environment with PyTorch.
 
 Prerequisites (Run this in Colab cell first):
@@ -22,10 +22,10 @@ import torch
 # 1. Configuration
 # ==========================================
 MODEL_NAME = "distilbert-base-uncased"
-OUTPUT_DIR = "./models/crisis-classifier"
+OUTPUT_DIR = "./models/complaint-classifier"
 
 # Paths to your actual dataset. Change to 'dataset.json' if using JSON.
-DATASET_PATH = "crisis_dataset.csv" 
+DATASET_PATH = "complaint_dataset.csv" 
 
 # Define your labels mapping
 LABEL_MAPPINGS = {"low": 0, "medium": 1, "high": 2}
@@ -131,9 +131,9 @@ def train_model():
 # ==========================================
 # 5. Inference Function
 # ==========================================
-def predict_crisis(text: str):
+def predict_complaint(text: str):
     """
-    Predicts the crisis label and confidence for a given text 
+    Predicts the complaint label and confidence for a given text 
     using the locally saved fine-tuned model.
     """
     try:
@@ -161,6 +161,6 @@ if __name__ == "__main__":
     
     # Uncomment to test inference (only works AFTER training):
     # test_text = "A massive category 5 hurricane is approaching the coast."
-    # prediction = predict_crisis(test_text)
+    # prediction = predict_complaint(test_text)
     # print(f"Inference Result: {prediction}")
     pass

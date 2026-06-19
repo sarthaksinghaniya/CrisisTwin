@@ -1,6 +1,6 @@
+import logging
 from typing import List, Dict, Any
 from app.services.memory.faiss_memory import FaissMemory
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +28,12 @@ class ContextRetriever:
         for result in raw_results:
             meta = result.get("metadata", {})
             case_info = {
-                "text": meta.get("text", "Unknown"),
-                "category": meta.get("incident_type", meta.get("type", "Unknown")),
-                "severity": meta.get("severity_level", meta.get("severity", "Unknown")),
+                "metadata": {
+                    "text": meta.get("complaint", meta.get("text", "Unknown")),
+                    "decision": meta.get("decision", "Unknown"),
+                    "outcome": meta.get("outcome", "Unknown"),
+                    "labels": meta.get("labels", [])
+                },
                 "distance": result.get("distance", 0.0)
             }
             similar_cases.append(case_info)

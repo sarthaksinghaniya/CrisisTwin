@@ -19,7 +19,7 @@ def normalize_dataset(df: pd.DataFrame, source_name: str) -> pd.DataFrame:
         if "target" in df.columns:
             df.rename(columns={"target": "label"}, inplace=True)
             
-    elif source_name == "crisis_nlp":
+    elif source_name == "complaint_nlp":
         if "tweet_text" in df.columns:
             df.rename(columns={"tweet_text": "text"}, inplace=True)
         if "class_label" in df.columns:
@@ -55,7 +55,7 @@ def normalize_dataset(df: pd.DataFrame, source_name: str) -> pd.DataFrame:
             if val_str in ["0", "non-disaster", "normal", "none", "false", "negative", "neutral", "joy"]:
                 return 0
             # Words indicating disaster
-            if val_str in ["1", "disaster", "crisis", "true", "positive", "anger", "fear", "sadness"]:
+            if val_str in ["1", "disaster", "complaint", "true", "positive", "anger", "fear", "sadness"]:
                 return 1
                 
         # If numeric or unhandled string, fallback to standard int logic

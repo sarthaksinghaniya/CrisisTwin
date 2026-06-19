@@ -1,18 +1,18 @@
 # CrisisTwin AI 🚨
 
-> A scalable, AI-powered backend system for crisis management and rapid response coordination.
+> A scalable, AI-powered backend system for complaint management and rapid response coordination.
 
-**CrisisTwin AI** is a robust backend system designed to manage, analyze, and coordinate responses to crisis situations. Built with modern Python technologies, it provides a secure and scalable foundation for reporting emergencies, dispatching responders, and leveraging Artificial Intelligence to automatically categorize, evaluate, and suggest remediation strategies.
+**CrisisTwin AI** is a robust backend system designed to manage, analyze, and coordinate responses to complaint situations. Built with modern Python technologies, it provides a secure and scalable foundation for reporting emergencies, dispatching responders, and leveraging Artificial Intelligence to automatically categorize, evaluate, and suggest remediation strategies.
 
 ---
 
 ## ✨ Features
 
 - **Robust User Authentication**: Secure login and registration flows utilizing JSON Web Tokens (JWT).
-- **Crisis Reporting System**: Complete RESTful APIs for submitting, tracking, and managing real-time crisis incidents.
+- **Complaint Reporting System**: Complete RESTful APIs for submitting, tracking, and managing real-time complaint incidents.
 - **Role-Based Users**: Architectural readiness for strict access controls (Admin, Responder, Citizen).
 - **Scalable Architecture**: Engineered with Domain-Driven Design principles, ensuring the system remains clean and modular as it grows.
-- **AI Agent-Ready Design**: Structured with abstract base agents, perfectly primed to integrate Large Language Models (LLMs) for automated crisis analysis.
+- **AI Agent-Ready Design**: Structured with abstract base agents, perfectly primed to integrate Large Language Models (LLMs) for automated complaint analysis.
 
 ## 🛠️ Tech Stack
 
@@ -27,7 +27,7 @@
 ## 📂 Project Structure
 
 ```text
-crisis_twin_ai/
+complaint_twin_ai/
 ├── app/
 │   ├── agents/         # AI analysis agents and orchestrators
 │   ├── api/            # API routers and dependency injection
@@ -49,7 +49,7 @@ Follow these steps to run the project locally:
 **1. Clone the repository**
 ```bash
 git clone https://github.com/yourusername/CrisisTwin.git
-cd CrisisTwin/crisis_twin_ai
+cd CrisisTwin/complaint_twin_ai
 ```
 
 **2. Create a virtual environment**
@@ -88,7 +88,7 @@ uvicorn app.main:app --reload
 
 ## 🔐 Environment Variables
 
-The project requires a `.env` file at the root of `crisis_twin_ai/`. Key variables include:
+The project requires a `.env` file at the root of `complaint_twin_ai/`. Key variables include:
 
 - `DATABASE_URL`: The connection string for your PostgreSQL database. *(Note: Our project parses this dynamically from components like `POSTGRES_SERVER`, `POSTGRES_USER`, etc.)*
 - `SECRET_KEY`: A strong, unpredictable string used to cryptographically sign JWT tokens.
@@ -107,9 +107,9 @@ Once the server is running, FastAPI automatically generates interactive API docu
 
 As the project evolves, the following features are mapped for the roadmap:
 
-- **AI Crisis Analysis Agents**: Integration with Large Language Models (LLMs) to automatically parse descriptions, assess severity, and extract key entities from incoming reports.
+- **AI Complaint Analysis Agents**: Integration with Large Language Models (LLMs) to automatically parse descriptions, assess severity, and extract key entities from incoming reports.
 - **Real-Time Alerts**: WebSocket integration for instant push notifications and alerts to active responders.
-- **External API Integrations**: Hooking into weather data, traffic APIs, and emergency broadcast systems for enriched crisis context.
+- **External API Integrations**: Hooking into weather data, traffic APIs, and emergency broadcast systems for enriched complaint context.
 
 ## 📄 License
 

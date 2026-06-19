@@ -1,5 +1,5 @@
-from typing import Dict, Any, List
 import logging
+from typing import Dict, Any, List
 import numpy as np
 from .model_loader import ModelLoader
 from app.ml.embeddings import EmbeddingService
@@ -20,8 +20,6 @@ class MLInferenceService:
         Generates BERT embeddings for the given text.
         """
         try:
-            # We use the embedding service which handles SentenceTransformer
-            # It expects a list of strings, so we wrap it
             embeddings_matrix = self.embedder.generate_embeddings([text])
             return embeddings_matrix[0].tolist()
         except Exception as e:
@@ -30,8 +28,8 @@ class MLInferenceService:
         
     def predict(self, text: str) -> Dict[str, Any]:
         """
-        Runs the main classifier and severity inference on the provided text.
-        Returns predicted category, severity, and confidence scores.
+        Runs the main classifier on the provided text.
+        Returns predicted categories and confidence scores.
         """
         try:
             embeddings = self.get_embeddings(text)
@@ -41,40 +39,55 @@ class MLInferenceService:
             X_input = np.array([embeddings])
             
             classifier = self.loader.get_classifier()
-            severity_model = self.loader.get_severity_model()
             encoders = self.loader.get_encoders()
             
-            if not classifier or not encoders:
+            if not classifier or not encoders or 'category' not in encoders:
                 logger.warning("Models not fully loaded. Returning fallback predictions.")
                 return self._fallback_predict()
 
-            # Predict Category
-            cat_probs = classifier.predict_proba(X_input)[0]
-            cat_idx = np.argmax(cat_probs)
-            cat_pred = encoders['category'].inverse_transform([cat_idx])[0]
-            cat_conf = float(cat_probs[cat_idx])
-            
-            # Predict Severity
-            sev_probs = severity_model.predict_proba(X_input)[0]
-            sev_idx = np.argmax(sev_probs)
-            sev_pred = encoders['severity'].inverse_transform([sev_idx])[0]
-            sev_conf = float(sev_probs[sev_idx])
-            
-            # Average confidence
-            confidence = (cat_conf + sev_conf) / 2.0
-            
-            return {
-                "category_pred": cat_pred.upper(),
-                "severity_pred": sev_pred.upper(),
-                "confidence_score": confidence
-            }
+            # Predict Categories (Multi-label from NNTrainer)
+            # Depending on if it's PyTorch NNTrainer or sklearn
+            if hasattr(classifier, 'predict'):
+                if type(classifier).__name__ == "NNTrainer":
+                    preds, probs = classifier.predict(X_input)
+                    preds = preds[0]
+                    probs = probs[0]
+                    
+                    class_names = encoders['category'].classes_
+                    predicted_labels = []
+                    confidences = []
+                    for i, is_pred in enumerate(preds):
+                        if is_pred == 1:
+                            predicted_labels.append(class_names[i])
+                            confidences.append(float(probs[i]))
+                            
+                    avg_conf = sum(confidences) / len(confidences) if confidences else 0.5
+                    
+                    if not predicted_labels:
+                        predicted_labels = ["OTHER"]
+                        avg_conf = 0.5
+                        
+                    return {
+                        "category_pred": predicted_labels,
+                        "confidence_score": avg_conf
+                    }
+                else:
+                    # Legacy fallback
+                    cat_probs = classifier.predict_proba(X_input)[0]
+                    cat_idx = np.argmax(cat_probs)
+                    cat_pred = encoders['category'].inverse_transform([cat_idx])[0]
+                    cat_conf = float(cat_probs[cat_idx])
+                    return {
+                        "category_pred": [cat_pred.upper()],
+                        "confidence_score": cat_conf
+                    }
+            return self._fallback_predict()
         except Exception as e:
             logger.error(f"Inference error: {e}")
             return self._fallback_predict()
             
     def _fallback_predict(self) -> Dict[str, Any]:
         return {
-            "category_pred": "OTHER",
-            "severity_pred": "LOW",
+            "category_pred": ["OTHER"],
             "confidence_score": 0.5
         }

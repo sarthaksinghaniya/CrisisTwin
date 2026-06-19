@@ -13,7 +13,7 @@ DATASETS_CONFIG = [
         "label_col": "target"
     },
     {
-        "name": "tweet_eval", # Simulating crisis_nlp / sentiment 
+        "name": "tweet_eval", # Simulating complaint_nlp / sentiment 
         "subset": "sentiment",
         "text_col": "text",
         "label_col": "label"

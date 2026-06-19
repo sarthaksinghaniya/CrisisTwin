@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-from app.models.crisis import SeverityEnum, StatusEnum
+from app.models.complaint import SeverityEnum, StatusEnum
 
 class CrisisBase(BaseModel):
     title: str
@@ -26,5 +26,5 @@ class CrisisInDBBase(CrisisBase):
 
     model_config = ConfigDict(from_attributes=True)
 
-class Crisis(CrisisInDBBase):
+class Complaint(CrisisInDBBase):
     pass

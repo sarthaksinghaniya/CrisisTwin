@@ -15,7 +15,7 @@ from app.ml.data.balance import apply_smote_balancing
 
 def main():
     print("=" * 50)
-    print("Starting Crisis ML Dataset Pipeline")
+    print("Starting Complaint ML Dataset Pipeline")
     print("=" * 50)
     
     try:

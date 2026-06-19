@@ -13,8 +13,8 @@ class StatusEnum(str, enum.Enum):
     active = "active"
     resolved = "resolved"
 
-class Crisis(Base):
-    __tablename__ = "crises"
+class Complaint(Base):
+    __tablename__ = "complaints"
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, index=True, nullable=False)
