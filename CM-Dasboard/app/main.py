@@ -33,6 +33,11 @@ from app.schemas.incident import (
     MemorySearchResponse, 
     PipelineResponse
 )
+from app.db.session import AsyncSessionLocal
+from app.models.complaint import Complaint, ComplaintStatus, PriorityEnum
+from app.models.complaint_update import ComplaintUpdate
+from app.services.routing.engine import RoutingEngine
+from sqlalchemy.future import select
 
 # -----------------------------------------------------------------------------
 # DEPENDENCY INJECTION
@@ -122,12 +127,11 @@ async def search_memory(
 # -----------------------------------------------------------------------------
 # ASYNC PIPELINE TASK
 # -----------------------------------------------------------------------------
-async def execute_pipeline_task(text: str):
+async def execute_pipeline_task(ticket_id: str):
     """
     Background worker function that runs the complete CM-Dashboard pipeline.
     """
-    task_id = hash(text)
-    logger.info(f"Starting async pipeline execution [Task: {task_id}]")
+    logger.info(f"Starting async pipeline execution for ticket: {ticket_id}")
     
     try:
         classifier = get_classifier_service()
@@ -135,42 +139,76 @@ async def execute_pipeline_task(text: str):
         memory = get_memory_service()
         agent = get_agent_service()
         
-        # 1. Classification
-        classification_res = classifier.predict(text)
-        labels = classification_res.get("category_pred", [])
-        logger.info(f"[Task: {task_id}] Classification complete: {labels}")
-        
-        # 2. RAG Retrieval
+        async with AsyncSessionLocal() as session:
+            # 1. Fetch Complaint
+            query = select(Complaint).filter(Complaint.ticket_id == ticket_id)
+            result = await session.execute(query)
+            complaint = result.scalars().first()
+            
+            if not complaint:
+                logger.error(f"Pipeline failed: Complaint {ticket_id} not found.")
+                return
+
+            text = complaint.description or complaint.title
+
+            # 2. AI Classification
+            classification_res = classifier.predict(text)
+            labels = classification_res.get("category_pred", ["OTHER"])
+            confidence = classification_res.get("confidence_score", 0.5)
+            logger.info(f"[Ticket {ticket_id}] Classification complete: {labels}")
+            
+            # Predict Priority
+            pred_priority_str = classifier.predict_severity(text)
+            complaint.priority = PriorityEnum[pred_priority_str]
+            complaint.category = labels[0] if labels else "OTHER"
+            complaint.department = RoutingEngine.get_department(complaint.category)
+
+            # 3. Routing & Assignment
+            if confidence >= 0.7:
+                assigned_to = await RoutingEngine.route_complaint(complaint.category, complaint.district, session)
+                complaint.assigned_to = assigned_to
+                if assigned_to:
+                    complaint.status = ComplaintStatus.ASSIGNED
+                    update = ComplaintUpdate(
+                        complaint_id=complaint.id,
+                        status=ComplaintStatus.ASSIGNED.value,
+                        note="Assigned by AI Pipeline Engine.",
+                        updated_by=None
+                    )
+                    session.add(update)
+            
+            # Save DB changes
+            await session.commit()
+
+        # 4. RAG & Agent Decision (Optional analytics)
         rag_res = rag.get_context(text)
         similar_cases = rag_res.get("similar_cases", [])
-        logger.info(f"[Task: {task_id}] RAG retrieval complete. Context chunks: {len(similar_cases)}")
-        
-        # 3. Agent Decision
         decision_res = await agent.process(text, context=similar_cases, ml_predictions=labels)
-        logger.info(f"[Task: {task_id}] Final Agent Decision: {decision_res.get('decision')}")
         
-        # 4. Save outcome to memory
         metadata = {
-            "complaint": text,
+            "ticket_id": ticket_id,
             "decision": decision_res.get('decision'),
-            "outcome": "Resolved",
             "labels": labels
         }
         memory.add_memory(text=text, metadata=metadata)
         
-        logger.info(f"Successfully completed async pipeline execution [Task: {task_id}]")
+        logger.info(f"Successfully completed pipeline execution for ticket {ticket_id}")
         
     except Exception as e:
-        logger.error(f"Async pipeline execution failed [Task: {task_id}]: {str(e)}", exc_info=True)
+        logger.error(f"Async pipeline execution failed for ticket {ticket_id}: {str(e)}", exc_info=True)
+
+class PipelineRunRequest(BaseModel):
+    ticket_id: str
+
 
 @complaints_router.post("/pipeline/run", response_model=PipelineResponse)
 async def run_pipeline(
-    request: ComplaintRequest,
+    request: PipelineRunRequest,
     background_tasks: BackgroundTasks
 ):
     try:
-        background_tasks.add_task(execute_pipeline_task, request.text)
-        return PipelineResponse(task_id=f"bg-{hash(request.text)}", status="accepted")
+        background_tasks.add_task(execute_pipeline_task, request.ticket_id)
+        return PipelineResponse(task_id=f"bg-{request.ticket_id}", status="accepted")
     except Exception as e:
         logger.error(f"Failed to trigger pipeline: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error triggering pipeline")
@@ -178,12 +216,24 @@ async def run_pipeline(
 # -----------------------------------------------------------------------------
 # FASTAPI APPLICATION
 # -----------------------------------------------------------------------------
+from contextlib import asynccontextmanager
+from app.services.scheduler import start_scheduler, shutdown_scheduler
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    start_scheduler()
+    yield
+    # Shutdown
+    shutdown_scheduler()
+
 app = FastAPI(
     title="Complaint Intelligence Dashboard API",
     description="Central brain and integration layer for CM-Dashboard: Multi-label classification, FAISS RAG, FAISS Memory, and Decision System.",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 app.include_router(complaints_router)

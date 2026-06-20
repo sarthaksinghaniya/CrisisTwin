@@ -9,6 +9,7 @@ pydantic-settings>=2.3.4
 passlib[bcrypt]>=1.7.4
 python-jose[cryptography]>=3.3.0
 python-multipart>=0.0.9
+apscheduler>=3.10.4
 
 # ML & Data Pipeline dependencies
 datasets>=2.19.0

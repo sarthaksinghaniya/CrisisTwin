@@ -12,6 +12,7 @@ from sqlalchemy.future import select
 from app.api import deps
 from app.db.session import get_db
 from app.models.complaint import Complaint, PriorityEnum, ComplaintStatus
+from app.models.complaint_update import ComplaintUpdate
 from app.models.attachment import Attachment
 from app.schemas.complaint import ComplaintSubmissionResponse, CrisisCreate, CrisisUpdate
 from app.services.ml.inference import MLInferenceService
@@ -152,6 +153,8 @@ async def submit_complaint(
         next_seq = 1
     ticket_id = f"{prefix}{next_seq:06d}"
 
+    initial_status = ComplaintStatus.ASSIGNED if assigned_to is not None else ComplaintStatus.SUBMITTED
+
     # 5. Database Save & File Storage Transaction
     db_complaint = Complaint(
         ticket_id=ticket_id,
@@ -164,7 +167,7 @@ async def submit_complaint(
         department=final_department,
         district=district,
         priority=final_priority,
-        status=ComplaintStatus.OPEN,
+        status=initial_status,
         assigned_to=assigned_to
     )
 
@@ -182,6 +185,14 @@ async def submit_complaint(
                 db=db
             )
             uploaded_attachments.append(attach_rec)
+
+        db_update = ComplaintUpdate(
+            complaint_id=db_complaint.id,
+            status=initial_status.value,
+            note="Complaint automatically routed." if assigned_to else "Complaint submitted.",
+            updated_by=None
+        )
+        db.add(db_update)
 
         await db.commit()
     except Exception as e:
@@ -219,7 +230,7 @@ async def submit_complaint(
             email_to=citizen_email,
             citizen_name=citizen_name,
             ticket_id=ticket_id,
-            status=ComplaintStatus.OPEN.value,
+            status=initial_status.value,
             estimated_sla=estimated_sla
         )
     except Exception as email_err:
@@ -241,6 +252,6 @@ async def submit_complaint(
     # 7. Response
     return ComplaintSubmissionResponse(
         ticket_id=ticket_id,
-        status=ComplaintStatus.OPEN.value,
+        status=initial_status.value,
         estimated_sla=estimated_sla
     )

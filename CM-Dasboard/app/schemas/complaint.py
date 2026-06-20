@@ -12,7 +12,7 @@ class ComplaintBase(BaseModel):
     lat: Optional[float] = None
     lon: Optional[float] = None
     priority: PriorityEnum = PriorityEnum.LOW
-    status: ComplaintStatus = ComplaintStatus.OPEN
+    status: ComplaintStatus = ComplaintStatus.SUBMITTED
 
 class CrisisCreate(BaseModel):
     title: str
@@ -23,7 +23,7 @@ class CrisisCreate(BaseModel):
     lat: Optional[float] = None
     lon: Optional[float] = None
     priority: Optional[PriorityEnum] = PriorityEnum.LOW
-    status: Optional[ComplaintStatus] = ComplaintStatus.OPEN
+    status: Optional[ComplaintStatus] = ComplaintStatus.SUBMITTED
 
 class CrisisUpdate(BaseModel):
     title: Optional[str] = None

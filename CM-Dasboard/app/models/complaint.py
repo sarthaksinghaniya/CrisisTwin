@@ -11,10 +11,11 @@ class PriorityEnum(str, enum.Enum):
     CRITICAL = "CRITICAL"
 
 class ComplaintStatus(str, enum.Enum):
-    OPEN = "OPEN"
+    SUBMITTED = "SUBMITTED"
+    ASSIGNED = "ASSIGNED"
     IN_PROGRESS = "IN_PROGRESS"
     RESOLVED = "RESOLVED"
-    REJECTED = "REJECTED"
+    CLOSED = "CLOSED"
     ESCALATED = "ESCALATED"
 
 class Complaint(BaseModel):
@@ -36,7 +37,7 @@ class Complaint(BaseModel):
     
     # Enums
     priority: Mapped[PriorityEnum] = mapped_column(Enum(PriorityEnum), default=PriorityEnum.LOW, index=True, nullable=False)
-    status: Mapped[ComplaintStatus] = mapped_column(Enum(ComplaintStatus), default=ComplaintStatus.OPEN, index=True, nullable=False)
+    status: Mapped[ComplaintStatus] = mapped_column(Enum(ComplaintStatus), default=ComplaintStatus.SUBMITTED, index=True, nullable=False)
     
     # Assigned Officer FK
     assigned_to: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
