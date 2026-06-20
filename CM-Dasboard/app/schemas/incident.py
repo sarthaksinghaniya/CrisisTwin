@@ -26,3 +26,6 @@ class MemorySearchResponse(BaseModel):
 class PipelineResponse(BaseModel):
     task_id: str = Field(..., description="ID of the background task", example="task-456")
     status: str = Field(..., description="Status of the pipeline execution", example="accepted")
+
+class PipelineRunRequest(BaseModel):
+    ticket_id: str
