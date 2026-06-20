@@ -29,7 +29,7 @@ async def request_otp(
     res = await db.execute(select(OTP).filter(OTP.email == email))
     otp_record = res.scalars().first()
     
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     
     if otp_record and otp_record.attempts >= 5:
         # Check if 15 minute lockout window is still active
@@ -118,7 +118,7 @@ async def verify_otp(
             detail="OTP verification code has not been requested or has expired."
         )
         
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     
     # 2. Check Lockout State
     if otp_record.attempts >= 5:

@@ -255,12 +255,23 @@ app = FastAPI(
 app.include_router(complaints_router)
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
+from app.api.deps import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
+
 @app.get("/health", tags=["System"])
-async def health_check():
+async def health_check(db: AsyncSession = Depends(get_db)):
     from app.services.scheduler import scheduler
+    try:
+        await db.execute(text("SELECT 1"))
+        db_status = "connected"
+    except Exception:
+        db_status = "disconnected"
+
     faiss_loaded = get_memory_service().index is not None and get_memory_service().index.ntotal >= 0
     return {
         "status": "ok",
+        "database": db_status,
         "faiss_loaded": faiss_loaded,
         "scheduler_running": scheduler.running
     }

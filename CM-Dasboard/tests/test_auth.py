@@ -48,9 +48,9 @@ async def test_verify_otp_success(async_client: AsyncClient, db_session: AsyncSe
     otp_record = OTP(
         email=email,
         otp_hash=hashed_otp,
-        expiry=datetime.now(timezone.utc) + timedelta(minutes=4),
+        expiry=datetime.utcnow() + timedelta(minutes=4),
         attempts=0,
-        created_at=datetime.now(timezone.utc)
+        created_at=datetime.utcnow()
     )
     db_session.add(otp_record)
     await db_session.commit()
@@ -77,9 +77,9 @@ async def test_verify_otp_invalid(async_client: AsyncClient, db_session: AsyncSe
     otp_record = OTP(
         email=email,
         otp_hash=hashed_otp,
-        expiry=datetime.now(timezone.utc) + timedelta(minutes=4),
+        expiry=datetime.utcnow() + timedelta(minutes=4),
         attempts=0,
-        created_at=datetime.now(timezone.utc)
+        created_at=datetime.utcnow()
     )
     db_session.add(otp_record)
     await db_session.commit()
@@ -93,9 +93,8 @@ async def test_verify_otp_invalid(async_client: AsyncClient, db_session: AsyncSe
     assert "Incorrect OTP" in response.json()["detail"]
     
     # Verify attempts incremented
-    res = await db_session.execute(select(OTP).filter(OTP.email == email))
-    updated_otp = res.scalars().first()
-    assert updated_otp.attempts == 1
+    await db_session.refresh(otp_record)
+    assert otp_record.attempts == 1
 
 @pytest.mark.asyncio
 async def test_verify_otp_expiry(async_client: AsyncClient, db_session: AsyncSession):
@@ -106,9 +105,9 @@ async def test_verify_otp_expiry(async_client: AsyncClient, db_session: AsyncSes
     otp_record = OTP(
         email=email,
         otp_hash=hashed_otp,
-        expiry=datetime.now(timezone.utc) - timedelta(minutes=1), # Expired
+        expiry=datetime.utcnow() - timedelta(minutes=1), # Expired
         attempts=0,
-        created_at=datetime.now(timezone.utc) - timedelta(minutes=5)
+        created_at=datetime.utcnow() - timedelta(minutes=5)
     )
     db_session.add(otp_record)
     await db_session.commit()
@@ -130,9 +129,9 @@ async def test_verify_otp_bruteforce_lockout(async_client: AsyncClient, db_sessi
     otp_record = OTP(
         email=email,
         otp_hash=hashed_otp,
-        expiry=datetime.now(timezone.utc) + timedelta(minutes=4),
+        expiry=datetime.utcnow() + timedelta(minutes=4),
         attempts=4, # One attempt away from lockout
-        created_at=datetime.now(timezone.utc)
+        created_at=datetime.utcnow()
     )
     db_session.add(otp_record)
     await db_session.commit()

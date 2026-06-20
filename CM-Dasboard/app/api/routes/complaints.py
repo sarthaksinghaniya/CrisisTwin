@@ -134,24 +134,9 @@ async def submit_complaint(
     if confidence_score >= 0.7:
         assigned_to = await RoutingEngine.route_complaint(final_category, district, db)
 
-    # 4. Generate Ticket ID sequentially
+    # 4. Generate Ticket ID (using UUID for distributed safety)
     current_year = datetime.now().year
-    prefix = f"DL-{current_year}-"
-    ticket_query = select(Complaint.ticket_id).filter(
-        Complaint.ticket_id.like(f"{prefix}%")
-    ).order_by(Complaint.ticket_id.desc()).limit(1)
-    ticket_res = await db.execute(ticket_query)
-    last_ticket = ticket_res.scalars().first()
-    
-    if last_ticket:
-        try:
-            last_seq = int(last_ticket.split("-")[-1])
-            next_seq = last_seq + 1
-        except Exception:
-            next_seq = 1
-    else:
-        next_seq = 1
-    ticket_id = f"{prefix}{next_seq:06d}"
+    ticket_id = f"DL-{current_year}-{uuid.uuid4().hex[:6].upper()}"
 
     initial_status = ComplaintStatus.ASSIGNED if assigned_to is not None else ComplaintStatus.SUBMITTED
 
@@ -238,15 +223,10 @@ async def submit_complaint(
 
     # 6.5 Async App Notification for Assignment
     if assigned_to is not None:
-        NotificationService.trigger_notification(
-            db=db,
-            background_tasks=background_tasks,
+        NotificationService.dispatch_assigned_notification(
             user_id=assigned_to,
-            title="New Complaint Assigned",
-            message=f"Ticket {ticket_id} has been assigned to you.",
-            type="complaint_assigned",
-            reference_id=str(db_complaint.id),
-            action_url=f"/complaints/{ticket_id}"
+            ticket_id=ticket_id,
+            background_tasks=background_tasks
         )
 
     # 6.6 Async FAISS Memory Ingestion

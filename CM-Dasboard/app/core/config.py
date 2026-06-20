@@ -27,8 +27,12 @@ class Settings(BaseSettings):
     S3_SECRET_KEY: str = os.getenv("S3_SECRET_KEY", "")
     S3_REGION: str = os.getenv("S3_REGION", "us-east-1")
 
+    USE_SQLITE: str = os.getenv("USE_SQLITE", "false")
+
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:
+        if self.USE_SQLITE.lower() == "true":
+            return "sqlite+aiosqlite:///./test.db"
         # We enforce asyncpg for the database connection
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 

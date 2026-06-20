@@ -13,7 +13,12 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-sync_db_url = settings.SQLALCHEMY_DATABASE_URI.replace("+asyncpg", "")
+sync_db_url = settings.SQLALCHEMY_DATABASE_URI
+if "sqlite+aiosqlite" in sync_db_url:
+    sync_db_url = sync_db_url.replace("sqlite+aiosqlite", "sqlite")
+else:
+    sync_db_url = sync_db_url.replace("+asyncpg", "")
+
 jobstores = {
     'default': SQLAlchemyJobStore(url=sync_db_url)
 }

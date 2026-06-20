@@ -23,12 +23,13 @@ def upgrade() -> None:
     inspector = sa.inspect(bind)
     existing_tables = inspector.get_table_names()
     
-    # Check existing enum types in postgres
-    existing_enums = [
-        row[0] for row in bind.execute(
-            sa.text("SELECT typname FROM pg_type WHERE typtype = 'e';")
-        ).all()
-    ]
+    existing_enums = []
+    if bind.engine.name == 'postgresql':
+        existing_enums = [
+            row[0] for row in bind.execute(
+                sa.text("SELECT typname FROM pg_type WHERE typtype = 'e';")
+            ).all()
+        ]
 
     # Handle RoleEnum dynamically based on existence
     role_enum_create = 'roleenum' not in existing_enums
@@ -252,15 +253,16 @@ def downgrade() -> None:
         op.drop_table('otps')
 
     # Drop enums if they exist in Postgres
-    existing_enums = [
-        row[0] for row in bind.execute(
-            sa.text("SELECT typname FROM pg_type WHERE typtype = 'e';")
-        ).all()
-    ]
-    
-    if 'roleenum' in existing_enums:
-        bind.execute(sa.text("DROP TYPE roleenum;"))
-    if 'priorityenum' in existing_enums:
-        bind.execute(sa.text("DROP TYPE priorityenum;"))
-    if 'complaintstatus' in existing_enums:
-        bind.execute(sa.text("DROP TYPE complaintstatus;"))
+    if bind.engine.name == 'postgresql':
+        existing_enums = [
+            row[0] for row in bind.execute(
+                sa.text("SELECT typname FROM pg_type WHERE typtype = 'e';")
+            ).all()
+        ]
+        
+        if 'roleenum' in existing_enums:
+            bind.execute(sa.text("DROP TYPE roleenum;"))
+        if 'priorityenum' in existing_enums:
+            bind.execute(sa.text("DROP TYPE priorityenum;"))
+        if 'complaintstatus' in existing_enums:
+            bind.execute(sa.text("DROP TYPE complaintstatus;"))

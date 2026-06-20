@@ -20,8 +20,13 @@ async def test_load_concurrent_submissions(async_client: AsyncClient):
         }
         
     async def submit(i: int):
-        with patch("app.api.routes.complaints.MLInferenceService"), \
+        with patch("app.api.routes.complaints.MLInferenceService") as mock_ml, \
              patch("app.api.routes.complaints.async_send_complaint_acknowledgement_email"):
+            
+            mock_inst = mock_ml.return_value
+            mock_inst.predict.return_value = {"category_pred": ["ROAD"], "confidence_score": 0.9}
+            mock_inst.predict_severity.return_value = "MEDIUM"
+            
             res = await async_client.post("/api/v1/complaints/", data=get_payload(i))
             return res
             

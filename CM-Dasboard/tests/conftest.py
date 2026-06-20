@@ -14,10 +14,10 @@ from app.core.config import settings
 from app.models.user import User, RoleEnum
 from app.core.security import create_access_token
 
-TEST_SQLALCHEMY_DATABASE_URL = "postgresql+asyncpg://postgres:anubhav2004@localhost:5432/cm_dashboard_test"
+TEST_SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///./test.db" if settings.USE_SQLITE.lower() == "true" else "postgresql+asyncpg://postgres:anubhav2004@localhost:5432/cm_dashboard_test"
 
 engine = create_async_engine(TEST_SQLALCHEMY_DATABASE_URL, echo=False, poolclass=NullPool)
-TestingSessionLocal = async_sessionmaker(autocommit=False, autoflush=False, bind=engine, class_=AsyncSession)
+TestingSessionLocal = async_sessionmaker(autocommit=False, autoflush=False, bind=engine, class_=AsyncSession, expire_on_commit=False)
 
 
 
@@ -79,6 +79,6 @@ async def auth_headers(create_test_user):
     async def _auth_headers(user: User = None, role: RoleEnum = RoleEnum.CITIZEN):
         if not user:
             user = await create_test_user(email=f"auth_{role.value}@example.com", role=role)
-        token = create_access_token(user.id, role.value)
+        token = create_access_token(user.id, user.email, role.value)
         return {"Authorization": f"Bearer {token}"}
     return _auth_headers

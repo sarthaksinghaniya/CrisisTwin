@@ -4,7 +4,7 @@ from unittest.mock import patch, AsyncMock
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from app.services.notification.service import NotificationService
+from app.services.notification.service import NotificationService, notification_background_job
 from app.models.notification import Notification
 
 @pytest.mark.asyncio
@@ -12,25 +12,18 @@ async def test_trigger_notification_success(db_session: AsyncSession, create_tes
     user = await create_test_user(email="notify@example.com")
     
     with patch("app.services.notification.service.async_send_notification_email", new_callable=AsyncMock) as mock_email:
-        background_tasks = AsyncMock()
         
-        NotificationService.trigger_notification(
-            db=db_session,
-            background_tasks=background_tasks,
+        await notification_background_job(
             user_id=user.id,
-            title="Test Alert",
             message="This is a test notification.",
-            type="status_changed"
+            subject="Test Alert"
         )
         
         # Verify db record
         res = await db_session.execute(select(Notification).filter(Notification.user_id == user.id))
         notifs = res.scalars().all()
         assert len(notifs) == 1
-        assert notifs[0].title == "Test Alert"
-        
-        # Background task should be called
-        assert background_tasks.add_task.called
+        assert notifs[0].message == "This is a test notification."
 
 @pytest.mark.asyncio
 async def test_trigger_notification_duplicate_storm_protection(db_session: AsyncSession, create_test_user):
@@ -39,23 +32,17 @@ async def test_trigger_notification_duplicate_storm_protection(db_session: Async
     background_tasks = AsyncMock()
     
     # Send 1st
-    NotificationService.trigger_notification(
-        db=db_session,
-        background_tasks=background_tasks,
+    await notification_background_job(
         user_id=user.id,
-        title="Duplicate Alert",
         message="This is a test notification.",
-        type="status_changed"
+        subject="Duplicate Alert"
     )
     
     # Send 2nd (identical content, should be dropped)
-    NotificationService.trigger_notification(
-        db=db_session,
-        background_tasks=background_tasks,
+    await notification_background_job(
         user_id=user.id,
-        title="Duplicate Alert",
         message="This is a test notification.",
-        type="status_changed"
+        subject="Duplicate Alert"
     )
     
     # Verify only 1 db record exists
@@ -71,13 +58,10 @@ async def test_trigger_notification_inactive_user(db_session: AsyncSession, crea
     
     background_tasks = AsyncMock()
     
-    NotificationService.trigger_notification(
-        db=db_session,
-        background_tasks=background_tasks,
+    await notification_background_job(
         user_id=user.id,
-        title="Should Not Send",
         message="User is deleted.",
-        type="status_changed"
+        subject="Should Not Send"
     )
     
     # Verify no record created
@@ -93,18 +77,16 @@ async def test_get_notifications_api(async_client: AsyncClient, db_session: Asyn
     # Create notification
     notif = Notification(
         user_id=user.id,
-        title="API Test",
         message="API Message",
-        type="status_changed",
         is_read=False
     )
     db_session.add(notif)
     await db_session.commit()
     
-    res = await async_client.get("/api/v1/notifications/", headers=headers)
+    res = await async_client.get("/api/v1/notifications/unread", headers=headers)
     assert res.status_code == 200
-    assert len(res.json()["items"]) == 1
-    assert res.json()["items"][0]["title"] == "API Test"
+    assert len(res.json()) == 1
+    assert res.json()[0]["message"] == "API Message"
 
 @pytest.mark.asyncio
 async def test_mark_notification_read(async_client: AsyncClient, db_session: AsyncSession, create_test_user, auth_headers):
@@ -113,16 +95,14 @@ async def test_mark_notification_read(async_client: AsyncClient, db_session: Asy
     
     notif = Notification(
         user_id=user.id,
-        title="Mark Read",
         message="Read Me",
-        type="status_changed",
         is_read=False
     )
     db_session.add(notif)
     await db_session.commit()
     await db_session.refresh(notif)
     
-    res = await async_client.post(f"/api/v1/notifications/{notif.id}/read", headers=headers)
+    res = await async_client.patch(f"/api/v1/notifications/{notif.id}/read", headers=headers)
     assert res.status_code == 200
     assert res.json()["is_read"] is True
     

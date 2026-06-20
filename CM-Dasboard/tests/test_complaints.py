@@ -73,8 +73,13 @@ async def test_create_duplicate_complaint(
         "category": "WATER"
     }
     
-    with patch("app.api.routes.complaints.MLInferenceService"), \
+    with patch("app.api.routes.complaints.MLInferenceService") as mock_ml_class, \
          patch("app.api.routes.complaints.async_send_complaint_acknowledgement_email"):
+        
+        mock_ml_instance = mock_ml_class.return_value
+        mock_ml_instance.predict.return_value = mock_ml_predict("WATER", 0.9)
+        mock_ml_instance.predict_severity.return_value = "MEDIUM"
+
         # First submission
         res1 = await async_client.post("/api/v1/complaints/", data=data)
         assert res1.status_code == 201
@@ -99,11 +104,11 @@ async def test_routing_head_fallback(
     )
     
     data = {
-        "citizen_name": "Jane Doe",
-        "citizen_email": "jane@example.com",
+        "citizen_name": "Jane Head",
+        "citizen_email": "jane_head@example.com",
         "citizen_phone": "9876543211",
-        "title": "Water Leak",
-        "description": "Pipe broken",
+        "title": "Water Leak East Delhi",
+        "description": "Pipe broken in East Delhi",
         "district": "East Delhi", # No officer here
         "category": "WATER"
     }
@@ -135,8 +140,8 @@ async def test_routing_low_confidence_admin_queue(
         "citizen_name": "Test User",
         "citizen_email": "test@example.com",
         "citizen_phone": "9876543212",
-        "title": "Unknown issue",
-        "description": "I have an issue but I don't know who to tell.",
+        "title": "Unknown issue North Delhi",
+        "description": "I have an issue but I don't know who to tell North Delhi.",
         "district": "North Delhi"
         # Omitting category to trigger AI
     }
