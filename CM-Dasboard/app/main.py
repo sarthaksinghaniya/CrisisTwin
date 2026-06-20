@@ -315,7 +315,7 @@ async def search_memory(
 
 
 # ==========================================
-# 5. PIPELINE RUN ROUTE (PRODUCTION FIX)
+# 5. PIPELINE RUN ROUTE (FIXED SCHEMA CONTRACT)
 # ==========================================
 @complaints_router.post("/pipeline/run", response_model=PipelineResponse)
 async def run_pipeline(
@@ -323,34 +323,47 @@ async def run_pipeline(
     background_tasks: BackgroundTasks
 ):
     """
-    Triggers the end-to-end classification, assignment, and vector persistence pipeline.
-    Uses FastAPI BackgroundTasks natively if APScheduler is uninitialized during application bootstrap.
+    Triggers the automated classification, assignment, and vector persistence pipeline.
+    Captures background task IDs to strictly satisfy the PipelineResponse contract.
     """
     try:
         from app.tasks.pipeline import execute_core
         
+        # Enforce tracking string formatting based on ticket references
+        assigned_task_id = f"task_pipeline_{request.ticket_id}"
+        
         try:
             from app.main import scheduler
-            # Append ticket run execution payload directly onto APScheduler instance
-            scheduler.add_job(execute_core, args=[request.ticket_id])
-            logger.info(f"Successfully added ticket pipeline execution to APScheduler: {request.ticket_id}")
+            # Append execution payload directly onto your active APScheduler instance
+            job = scheduler.add_job(
+                execute_core, 
+                args=[request.ticket_id],
+                id=assigned_task_id,
+                replace_existing=True
+            )
+            # Use the registered job id string explicitly
+            assigned_task_id = str(job.id)
+            logger.info(f"[PIPELINE_SCHEDULER] Task registered via APScheduler. ID: {assigned_task_id}")
+            
         except Exception as scheduler_err:
-            logger.warning(f"APScheduler context failed ({str(scheduler_err)}). Falling back to FastAPI native BackgroundTasks...")
-            # Native safe threadpool fallback to bypass server crashes
+            logger.warning(
+                f"[PIPELINE_SCHEDULER_WARN] APScheduler unavailable ({str(scheduler_err)}). "
+                "Switching to native FastAPI BackgroundTasks worker..."
+            )
+            # Safe local async container threadpool fallback
             background_tasks.add_task(execute_core, request.ticket_id)
-            logger.info(f"Successfully dispatched pipeline execution via BackgroundTasks: {request.ticket_id}")
+            logger.info(f"[PIPELINE_WORKER] Task registered via BackgroundTasks. ID: {assigned_task_id}")
         
+        # FIX: Construct object using only the keys allowed by your exact Pydantic schema
         return PipelineResponse(
-            status="accepted",
-            message="Pipeline orchestration task registered successfully.",
-            ticket_id=request.ticket_id
+            task_id=assigned_task_id
         )
         
     except Exception as e:
-        logger.error(f"Critical pipeline dispatch error for Ticket {request.ticket_id}: {str(e)}", exc_info=True)
+        logger.error(f"[PIPELINE_CRITICAL_ERR] Validation or submission failed for ticket {request.ticket_id}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500, 
-            detail=f"Failed to submit ticket execution pipeline background worker process: {str(e)}"
+            detail="Failed to submit target execution pipeline background tracking worker process."
         )
 
 
