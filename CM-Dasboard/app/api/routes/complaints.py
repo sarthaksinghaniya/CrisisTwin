@@ -229,23 +229,14 @@ async def submit_complaint(
             background_tasks=background_tasks
         )
 
-    # 6.6 Async FAISS Memory Ingestion
-    def sync_add_to_memory(text: str, metadata: dict):
-        from app.main import get_memory_service
-        try:
-            get_memory_service().add_memory(text=text, metadata=metadata)
-            logger.info(f"Ingested ticket {metadata['ticket_id']} into FAISS brain.")
-        except Exception as e:
-            logger.error(f"FAISS ingestion failed for {metadata['ticket_id']}: {e}", exc_info=True)
-
-    metadata = {
-        "ticket_id": ticket_id,
-        "labels": [final_category],
-        "decision": "Routed" if assigned_to else "Pending"
-    }
-    background_tasks.add_task(sync_add_to_memory, description, metadata)
-
-    # 7. Response
+    # 6. Trigger Celery Pipeline
+    try:
+        from app.tasks.pipeline import process_pipeline_task
+        process_pipeline_task.delay(ticket_id)
+        logger.info(f"Triggered Celery pipeline for complaint {ticket_id}")
+    except Exception as e:
+        logger.error(f"Failed to trigger Celery pipeline for {ticket_id}: {e}", exc_info=True)
+        
     return ComplaintSubmissionResponse(
         ticket_id=ticket_id,
         status=initial_status.value,

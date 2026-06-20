@@ -1,0 +1,11 @@
+feat(arch): migrate monolithic execution to distributed Celery + Redis architecture
+
+This commit completely transforms the system into a highly scalable, production-grade asynchronous backend by decoupling execution workloads via task queues:
+
+- feat(broker): integrate Redis as the primary message broker and Celery result backend
+- feat(queue): offload main `execute_pipeline_task` from synchronous API loops into dedicated Celery workers
+- feat(cron): replace in-memory APScheduler with stateless Celery Beat cron jobs for escalation and retry triggers
+- feat(orchestration): introduce a comprehensive `docker-compose.yml` for unified provisioning of API, PostgreSQL, Redis, Worker, and Beat layers
+- fix(health): augment `/health` endpoint to throw 503 degraded states if Redis or Celery control probes fail
+- fix(faiss): guarantee cross-thread safety by securely wrapping `apply_rl_reward` inside `faiss_lock`
+- chore(deps): upgrade `requirements.txt` with required `celery` and `redis` integrations

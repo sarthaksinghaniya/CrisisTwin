@@ -26,8 +26,13 @@ class Settings(BaseSettings):
     S3_ACCESS_KEY: str = os.getenv("S3_ACCESS_KEY", "")
     S3_SECRET_KEY: str = os.getenv("S3_SECRET_KEY", "")
     S3_REGION: str = os.getenv("S3_REGION", "us-east-1")
-
+    
     USE_SQLITE: str = os.getenv("USE_SQLITE", "false")
+
+    # Redis & Celery config
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://redis:6379/0")
+    CELERY_BROKER_URL: str = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
+    CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND", "redis://redis:6379/0")
 
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:

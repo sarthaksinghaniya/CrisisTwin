@@ -78,11 +78,12 @@ class FaissMemory:
         if reward <= -1.0:
             # We must search and deprecate the matching incident
             vec = self.embedding.embed(text).reshape(1, -1)
-            D, I = self.index.search(vec, 1)
-            idx = int(I[0][0])
-            if idx != -1 and idx in self.metadata_store:
-                self.metadata_store[idx]["deprecated"] = True
-                logger.info(f"RL Loop: Deprecated bad memory [ID: {idx}] due to negative reward.")
+            with faiss_lock:
+                D, I = self.index.search(vec, 1)
+                idx = int(I[0][0])
+                if idx != -1 and idx in self.metadata_store:
+                    self.metadata_store[idx]["deprecated"] = True
+                    logger.info(f"RL Loop: Deprecated bad memory [ID: {idx}] due to negative reward.")
         elif reward >= 1.0:
             # Boost the memory by adding it explicitly as a corrected standard
             logger.info(f"RL Loop: Boosting high-reward memory by appending to FAISS.")

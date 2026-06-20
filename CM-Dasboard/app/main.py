@@ -125,92 +125,6 @@ async def search_memory(
         raise HTTPException(status_code=500, detail="Error searching memory")
 
 # -----------------------------------------------------------------------------
-# ASYNC PIPELINE TASK
-# -----------------------------------------------------------------------------
-async def execute_pipeline_task(ticket_id: str):
-    """
-    Background worker function that runs the complete CM-Dashboard pipeline.
-    """
-    logger.info(f"Starting async pipeline execution for ticket: {ticket_id}")
-    
-    try:
-        classifier = get_classifier_service()
-        rag = get_rag_service()
-        memory = get_memory_service()
-        agent = get_agent_service()
-        
-        async with AsyncSessionLocal() as session:
-            # 1. Fetch Complaint
-            query = select(Complaint).filter(Complaint.ticket_id == ticket_id)
-            result = await session.execute(query)
-            complaint = result.scalars().first()
-            
-            if not complaint:
-                logger.error(f"Pipeline failed: Complaint {ticket_id} not found.")
-                return
-
-            text = complaint.description or complaint.title
-
-            # 2. AI Classification
-            classification_res = await asyncio.to_thread(classifier.predict, text)
-            labels = classification_res.get("category_pred", ["OTHER"])
-            confidence = classification_res.get("confidence_score", 0.5)
-            logger.info(f"[Ticket {ticket_id}] Classification complete: {labels}")
-            
-            # Predict Priority
-            pred_priority_str = await asyncio.to_thread(classifier.predict_severity, text)
-            complaint.priority = PriorityEnum[pred_priority_str]
-            complaint.category = labels[0] if labels else "OTHER"
-            complaint.department = RoutingEngine.get_department(complaint.category)
-
-            # 3. Routing & Assignment
-            if confidence >= 0.7:
-                assigned_to = await RoutingEngine.route_complaint(complaint.category, complaint.district, session)
-                complaint.assigned_to = assigned_to
-                if assigned_to:
-                    complaint.status = ComplaintStatus.ASSIGNED
-                    update = ComplaintUpdate(
-                        complaint_id=complaint.id,
-                        status=ComplaintStatus.ASSIGNED.value,
-                        note="Assigned by AI Pipeline Engine.",
-                        updated_by=None
-                    )
-                    session.add(update)
-            
-            # Save DB changes
-            await session.commit()
-
-        # 4. RAG & Agent Decision (Optional analytics)
-        rag_res = await asyncio.to_thread(rag.get_context, text)
-        similar_cases = rag_res.get("similar_cases", [])
-        decision_res = await agent.process(text, context=similar_cases, ml_predictions=labels)
-        
-        metadata = {
-            "ticket_id": ticket_id,
-            "decision": decision_res.get('decision'),
-            "labels": labels
-        }
-        await asyncio.to_thread(memory.add_memory, text, metadata)
-        
-        logger.info(f"Successfully completed pipeline execution for ticket {ticket_id}")
-        
-    except Exception as e:
-        logger.error(f"Async pipeline execution failed for ticket {ticket_id}: {str(e)}", exc_info=True)
-        try:
-            async with AsyncSessionLocal() as session:
-                query = select(Complaint).filter(Complaint.ticket_id == ticket_id)
-                result = await session.execute(query)
-                complaint = result.scalars().first()
-                if complaint:
-                    if complaint.retry_count >= 3:
-                        complaint.status = ComplaintStatus.FAILED_FINAL
-                    else:
-                        complaint.status = ComplaintStatus.FAILED
-                    complaint.failure_reason = str(e)
-                    await session.commit()
-        except Exception as db_e:
-            logger.error(f"Failed to update database with failure state for ticket {ticket_id}: {db_e}", exc_info=True)
-
 class PipelineRunRequest(BaseModel):
     ticket_id: str
 
@@ -221,8 +135,9 @@ async def run_pipeline(
     background_tasks: BackgroundTasks
 ):
     try:
-        background_tasks.add_task(execute_pipeline_task, request.ticket_id)
-        return PipelineResponse(task_id=f"bg-{request.ticket_id}", status="accepted")
+        from app.tasks.pipeline import process_pipeline_task
+        process_pipeline_task.delay(request.ticket_id)
+        return {"status": "accepted", "message": "Pipeline execution triggered successfully", "ticket_id": request.ticket_id}
     except Exception as e:
         logger.error(f"Failed to trigger pipeline: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error triggering pipeline")
@@ -231,16 +146,13 @@ async def run_pipeline(
 # FASTAPI APPLICATION
 # -----------------------------------------------------------------------------
 from contextlib import asynccontextmanager
-from app.services.scheduler import start_scheduler, shutdown_scheduler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    start_scheduler()
     get_memory_service().load_memory()
     yield
     # Shutdown
-    shutdown_scheduler()
     get_memory_service().save_memory()
 
 app = FastAPI(
@@ -261,17 +173,43 @@ from sqlalchemy import text
 
 @app.get("/health", tags=["System"])
 async def health_check(db: AsyncSession = Depends(get_db)):
-    from app.services.scheduler import scheduler
+    from fastapi import Response
+    from app.worker.celery_app import celery_app
+    import redis
+    
     try:
         await db.execute(text("SELECT 1"))
         db_status = "connected"
     except Exception:
         db_status = "disconnected"
 
+    try:
+        r = redis.from_url(settings.REDIS_URL)
+        r.ping()
+        redis_status = "connected"
+    except Exception:
+        redis_status = "disconnected"
+
+    try:
+        ping_res = celery_app.control.ping(timeout=1.0)
+        celery_worker_status = "running" if ping_res else "unreachable"
+    except Exception:
+        celery_worker_status = "error"
+
     faiss_loaded = get_memory_service().index is not None and get_memory_service().index.ntotal >= 0
-    return {
-        "status": "ok",
+    
+    is_ok = db_status == "connected" and faiss_loaded and redis_status == "connected" and celery_worker_status == "running"
+    
+    response_data = {
+        "status": "ok" if is_ok else "degraded",
         "database": db_status,
-        "faiss_loaded": faiss_loaded,
-        "scheduler_running": scheduler.running
+        "redis": redis_status,
+        "celery_worker": celery_worker_status,
+        "faiss_loaded": faiss_loaded
     }
+    
+    if not is_ok:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=503, content=response_data)
+        
+    return response_data
