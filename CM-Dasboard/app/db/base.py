@@ -11,3 +11,4 @@ from app.models.notification import Notification  # noqa
 from app.models.otp import OTP  # noqa
 from app.models.feedback import Feedback  # noqa
 from app.models.escalation import Escalation  # noqa
+from app.models.analytics_snapshot import AnalyticsSnapshot  # noqa

@@ -8,6 +8,7 @@ from .notification import Notification
 from .otp import OTP
 from .feedback import Feedback
 from .escalation import Escalation
+from .analytics_snapshot import AnalyticsSnapshot
 
 __all__ = [
     "Base",
@@ -24,4 +25,5 @@ __all__ = [
     "OTP",
     "Feedback",
     "Escalation",
+    "AnalyticsSnapshot",
 ]

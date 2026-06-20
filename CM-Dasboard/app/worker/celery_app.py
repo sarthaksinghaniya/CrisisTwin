@@ -9,7 +9,7 @@ celery_app = Celery(
     "cm_worker",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
-    include=["app.tasks.pipeline", "app.tasks.escalation"]
+    include=["app.tasks.pipeline", "app.tasks.escalation", "app.tasks.analytics"]
 )
 
 celery_app.conf.update(
@@ -32,5 +32,9 @@ celery_app.conf.beat_schedule = {
     "retry_pipeline_job": {
         "task": "app.tasks.escalation.run_retry_pipeline_job",
         "schedule": 120.0, # every 2 minutes
+    },
+    "analytics_snapshot_job": {
+        "task": "app.tasks.analytics.run_analytics_snapshot_job",
+        "schedule": 1800.0, # every 30 minutes
     },
 }

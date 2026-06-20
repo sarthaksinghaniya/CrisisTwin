@@ -59,6 +59,15 @@ class SchedulerEngine:
             max_instances=1,
         )
 
+        # 4. Analytics snapshot — every 30 minutes
+        self.scheduler.add_job(
+            self._run_analytics_snapshot,
+            trigger=IntervalTrigger(minutes=30),
+            id="job_analytics_snapshot",
+            replace_existing=True,
+            max_instances=1,
+        )
+
     def start(self):
         """Start the background scheduler loop."""
         if not self._running:
@@ -108,4 +117,17 @@ class SchedulerEngine:
         except Exception as exc:
             logger.error(
                 f"[SCHEDULER_ENGINE] FAISS sync job failed: {exc}", exc_info=True
+            )
+
+    async def _run_analytics_snapshot(self):
+        """Analytics snapshot periodic job."""
+        logger.info("[SCHEDULER_ENGINE] Running analytics snapshot job...")
+        try:
+            from app.services.analytics import AnalyticsSnapshotService
+            async with AsyncSessionLocal() as session:
+                snapshot = await AnalyticsSnapshotService.compute_snapshot(session)
+                await AnalyticsSnapshotService.save_snapshot(snapshot, session)
+        except Exception as exc:
+            logger.error(
+                f"[SCHEDULER_ENGINE] Analytics snapshot job failed: {exc}", exc_info=True
             )
