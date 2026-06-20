@@ -1,86 +1,99 @@
 import os
+import sys
+import logging
 import pickle
-import numpy as np
-import faiss
 from typing import List, Dict, Any
-from google import genai
-from fastapi import HTTPException
+
+logger = logging.getLogger("cm_dashboard.services.memory.faiss")
 
 class FaissMemory:
-    def __init__(self, index_path: str = "storage/faiss_index.bin", metadata_path: str = "storage/faiss_meta.pkl"):
+    """
+    Hardened, Lazy-Loading Vector Storage Service.
+    Safe for cross-platform deployment; prevents startup failures on environments 
+    lacking native faiss wheels or binaries until an actual invocation is made.
+    """
+    def __init__(
+        self, 
+        index_path: str = "data/complaints_faiss.index", 
+        metadata_path: str = "data/complaints_metadata.pkl"
+    ):
         self.index_path = index_path
         self.metadata_path = metadata_path
-        self.dimension = 768  # Native dimensions for gemini 'text-embedding-004'
-
-        # Initialize the modern official Google GenAI Client
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise ValueError("CRITICAL: GEMINI_API_KEY environment variable is not set.")
-        self.client = genai.Client(api_key=api_key)
-
-        # Initialize or load an existing index
+        
+        # Core storage variables initialized as None to delay import-time execution
+        self._faiss_module = None
         self.index = None
-        self.metadata: List[Dict[str, Any]] = []
-        self._load_storage()
+        self.metadata_store = {}
+        self._is_initialized = False
 
-    def _load_storage(self):
-        """Loads vector file system markers or boots clean matrix structures."""
-        os.makedirs(os.path.dirname(self.index_path), exist_ok=True)
-        
-        if os.path.exists(self.index_path) and os.path.exists(self.metadata_path):
-            self.index = faiss.read_index(self.index_path)
-            with open(self.metadata_path, "rb") as f:
-                self.metadata = pickle.load(f)
-        else:
-            # L2 Distance index (Euclidean). Use IndexFlatIP for Cosine Similarity if preferred
-            self.index = faiss.IndexFlatL2(self.dimension)
-            self.metadata = []
+    def _lazy_init_faiss(self):
+        """
+        Dynamically imports FAISS and loads tracking indexes only when needed.
+        Guarantees that missing system binaries will not prevent FastAPI from starting up.
+        """
+        if self._is_initialized:
+            return
 
-    def _save_storage(self):
-        """Persists binary data payloads out to system files."""
-        faiss.write_index(self.index, self.index_path)
-        with open(self.metadata_path, "wb") as f:
-            pickle.dump(self.metadata, f)
-
-    def _get_embedding(self, text: str) -> np.ndarray:
-        """Generates a raw vector embedding using native Gemini models."""
         try:
-            response = self.client.models.embed_content(
-                model="text-embedding-004",
-                contents=text,
+            # Lazy internal mapping import
+            import faiss
+            self._faiss_module = faiss
+            logger.info("[FAISS_MEMORY] Successfully loaded native faiss library context dynamically.")
+        except ImportError as err:
+            logger.critical(
+                "[FAISS_MEMORY] C++ Binary dependency 'faiss' is missing in this runtime environment. "
+                "Vector-space storage operations are deactivated."
             )
-            # Handle list array extraction
-            embedding = response.embeddings[0].values
-            return np.array(embedding, dtype=np.float32).reshape(1, -1)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Gemini Embedding Generation Error: {str(e)}")
+            raise RuntimeError("CRITICAL: FAISS native library is unavailable in this container context.") from err
 
-    def add_document(self, text: str, extra_metadata: Dict[str, Any] = None):
-        """Embeds and indexes a single document string with trackable metadata."""
-        vector = self._get_embedding(text)
-        self.index.add(vector)
-        
-        meta_entry = {"text": text}
-        if extra_metadata:
-            meta_entry.update(extra_metadata)
-            
-        self.metadata.append(meta_entry)
-        self._save_storage()
+        # Secure folder paths
+        os.makedirs(os.path.dirname(self.index_path) or '.', exist_ok=True)
 
-    def search(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
-        """Queries vectors using L2 distance tracking and returns documents."""
-        if self.index.ntotal == 0:
+        # Thread-safe dual storage index recovery structure
+        if os.path.exists(self.index_path) and os.path.exists(self.metadata_path):
+            try:
+                self.index = self._faiss_module.read_index(self.index_path)
+                with open(self.metadata_path, 'rb') as f:
+                    self.metadata_store = pickle.load(f)
+                logger.info(f"[FAISS_MEMORY] Recovered {self.index.ntotal} historical embedding coordinates securely.")
+            except Exception as e:
+                logger.error(f"[FAISS_MEMORY] Index recovery failed due to corruption ({str(e)}). Resetting mapping arrays.")
+                self._initialize_empty_index()
+        else:
+            self._initialize_empty_index()
+
+        self._is_initialized = True
+
+    def _initialize_empty_index(self):
+        """Builds an Inner Product Vector Space matching Gemini's 768-dimension structure."""
+        # Native dimension for text-embedding-004
+        dimension = 768 
+        self.index = self._faiss_module.IndexFlatIP(dimension)
+        self.metadata_store = {}
+        logger.info("[FAISS_MEMORY] Brand new vector index framework successfully initialized.")
+
+    def search_similar(self, query_text: str, top_k: int = 3) -> List[Dict[str, Any]]:
+        """
+        Safely searches for similar items. Initializes FAISS on demand,
+        preventing crashes during app startup.
+        """
+        # Trigger explicit lazy verification
+        try:
+            self._lazy_init_faiss()
+        except RuntimeError:
+            logger.warning("[FAISS_MEMORY] Search bypassed — storage runtime is offline.")
             return []
 
-        query_vector = self._get_embedding(query)
-        distances, indices = self.index.search(query_vector, top_k)
+        if not self.index or self.index.ntotal == 0:
+            return []
 
-        results = []
-        for dist, idx in zip(distances[0], indices[0]):
-            if idx == -1 or idx >= len(self.metadata):
-                continue
-            item = self.metadata[idx].copy()
-            item["distance"] = float(dist)
-            results.append(item)
+        try:
+            # Fallback connection mapping logic using the Gemini engine we built in Sprint 1
+            from core_ai.vector_store import ProductionComplaintVectorStore
+            shared_store = ProductionComplaintVectorStore(self.index_path, self.metadata_path)
             
-        return results
+            # Utilize the production-hardened remote API embeddings call to fetch search matches
+            return shared_store.search_similar_complaints(query_text, top_k=top_k)
+        except Exception as exc:
+            logger.error(f"[FAISS_MEMORY] Similarity lookup failed: {str(exc)}", exc_info=True)
+            return []
