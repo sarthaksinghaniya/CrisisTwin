@@ -56,6 +56,7 @@ class AnalyticsSnapshotService:
         dept_counts = {}
         district_counts = {}
         category_counts = {}
+        dept_resolution_times = {}
         
         for c in complaints:
             # Pending statuses: SUBMITTED, PROCESSING, ASSIGNED, ESCALATED
@@ -80,6 +81,11 @@ class AnalyticsSnapshotService:
                     res_time = 0.0
                 total_resolution_hours += res_time
                 
+                dept = c.department or "Unknown"
+                if dept not in dept_resolution_times:
+                    dept_resolution_times[dept] = []
+                dept_resolution_times[dept].append(res_time)
+                
             # Group top departments
             dept = c.department or "Unknown"
             dept_counts[dept] = dept_counts.get(dept, 0) + 1
@@ -96,6 +102,11 @@ class AnalyticsSnapshotService:
             
         average_sla = total_sla_hours / total_complaints if total_complaints > 0 else 0.0
         average_resolution_time = total_resolution_hours / resolved_complaints_count if resolved_complaints_count > 0 else 0.0
+        
+        # Calculate department resolution time averages
+        department_sla_hours = {}
+        for dept, times in dept_resolution_times.items():
+            department_sla_hours[dept] = round(sum(times) / len(times), 2)
         
         # Sort aggregations descending
         top_departments = dict(sorted(dept_counts.items(), key=lambda x: x[1], reverse=True))
@@ -136,7 +147,8 @@ class AnalyticsSnapshotService:
             "top_departments": top_departments,
             "top_districts": top_districts,
             "top_categories": top_categories,
-            "officer_ranking": officer_ranking
+            "officer_ranking": officer_ranking,
+            "department_sla_hours": department_sla_hours
         }
 
     @classmethod
@@ -219,5 +231,6 @@ class AnalyticsSnapshotService:
             "top_departments": {},
             "top_districts": {},
             "top_categories": {},
-            "officer_ranking": []
+            "officer_ranking": [],
+            "department_sla_hours": {}
         }
