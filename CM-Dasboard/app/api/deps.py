@@ -84,7 +84,13 @@ async def get_current_user(db: SessionDep, request: Request, token_credentials: 
         )
         
     # 5. Retrieve user and verify database state (Edge Case: deleted/deactivated user)
-    result = await db.execute(select(User).filter(User.id == int(token_data.sub)))
+    import uuid
+    try:
+        user_id = uuid.UUID(token_data.sub)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user ID format in token")
+        
+    result = await db.execute(select(User).filter(User.id == user_id))
     user = result.scalars().first()
     
     if not user:

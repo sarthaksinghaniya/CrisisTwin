@@ -1,7 +1,8 @@
 import enum
+import uuid
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import String, Text, Enum, ForeignKey, Integer, Float, DateTime
+from sqlalchemy import String, Text, Enum, ForeignKey, Integer, Float, DateTime, Index, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import BaseModel
 
@@ -13,8 +14,8 @@ class PriorityEnum(str, enum.Enum):
 
 class ComplaintStatus(str, enum.Enum):
     SUBMITTED = "SUBMITTED"
+    PROCESSING = "PROCESSING"
     ASSIGNED = "ASSIGNED"
-    IN_PROGRESS = "IN_PROGRESS"
     RESOLVED = "RESOLVED"
     CLOSED = "CLOSED"
     ESCALATED = "ESCALATED"
@@ -23,6 +24,10 @@ class ComplaintStatus(str, enum.Enum):
 
 class Complaint(BaseModel):
     __tablename__ = "complaints"
+    
+    __table_args__ = (
+        Index("ix_complaint_status_time", "status", "updated_at"),
+    )
 
     ticket_id: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
     citizen_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
@@ -43,7 +48,7 @@ class Complaint(BaseModel):
     status: Mapped[ComplaintStatus] = mapped_column(Enum(ComplaintStatus), default=ComplaintStatus.SUBMITTED, index=True, nullable=False)
     
     # Assigned Officer FK
-    assigned_to: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
+    assigned_to: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
 
     # Retry Tracking
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

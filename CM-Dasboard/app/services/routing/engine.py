@@ -80,7 +80,7 @@ class RoutingEngine:
             for officer in officers:
                 workload_query = select(func.count(Complaint.id)).filter(
                     Complaint.assigned_to == officer.id,
-                    Complaint.status.in_([ComplaintStatus.ASSIGNED, ComplaintStatus.IN_PROGRESS])
+                    Complaint.status.in_([ComplaintStatus.ASSIGNED, ComplaintStatus.PROCESSING])
                 )
                 res_wl = await db.execute(workload_query)
                 workload = res_wl.scalar() or 0

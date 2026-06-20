@@ -1,3 +1,4 @@
+import uuid
 from pydantic import BaseModel, ConfigDict, EmailStr
 from datetime import datetime
 from typing import Optional, List
@@ -37,7 +38,7 @@ class CrisisUpdate(BaseModel):
     status: Optional[ComplaintStatus] = None
 
 class Complaint(ComplaintBase):
-    id: int
+    id: uuid.UUID
     ticket_id: str
     citizen_name: Optional[str] = None
     citizen_email: Optional[str] = None

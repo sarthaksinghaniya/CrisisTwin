@@ -1,3 +1,4 @@
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -29,7 +30,7 @@ async def list_unread_notifications(
 
 @router.patch("/{notification_id}/read", response_model=NotificationResponse)
 async def mark_notification_as_read(
-    notification_id: int,
+    notification_id: uuid.UUID,
     current_user: User = Depends(deps.get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
