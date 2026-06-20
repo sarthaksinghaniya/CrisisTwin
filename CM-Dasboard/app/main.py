@@ -76,77 +76,55 @@ else:
 complaints_router = APIRouter(prefix=f"{settings.API_V1_STR}/complaints", tags=["Complaints"])
 
 # ==========================================
-# 1. CLASSIFY COMPLAINT ROUTE (WITH LLM FALLBACK)
+# 1. CLASSIFY COMPLAINT ROUTE (FIXED DI INJECTION)
 # ==========================================
 @complaints_router.post("/classify", response_model=ClassificationResponse)
 async def classify_complaint(
     request: ComplaintRequest,
-    service = Depends(lambda: None) # Keeps dependency footprint intact without breaking signatures
+    service: MLInferenceService = Depends(get_classifier_service) # Fixed: Kept original DI intact
 ):
     """
-    Classifies complaints using local services. Automatically falls back to
-    Gemini structured parsing to eliminate production crashes.
+    Classifies complaints using the local MLInferenceService pipeline. 
+    If the local model fails, it automatically runs the Gemini fallback.
     """
     try:
-        # Fallback instantly if the internal/local service instance is missing
-        if not service:
-            raise ValueError("Local MLInferenceService missing or uninitialized.")
+        if service is None:
+            raise ValueError("Local MLInferenceService dependency returned None.")
             
+        # Execute the primary local service prediction model in a safe threadpool
         res = await asyncio.to_thread(service.predict, request.text)
         return ClassificationResponse(
             labels=res.get("category_pred", []), 
             confidence=res.get("confidence_score", 0.0)
         )
+        
     except Exception as local_exception:
-        logger.warning(f"Local classification failed ({str(local_exception)}). Triggering production Gemini fallback...")
+        logger.warning(
+            f"[CLASSIFY_FALLBACK] Local service encountered an issue ({str(local_exception)}). "
+            "Routing request to live Gemini fallback engine..."
+        )
         
         if not ai_client:
-            raise HTTPException(status_code=500, detail="GenAI Client unavailable and local service failed.")
+            raise HTTPException(
+                status_code=500, 
+                detail="Local classification failed and live Gemini GenAI Client is offline."
+            )
 
         try:
-            # Force Gemini to return a clean, validated JSON schema matching your app
+            # Enforce an exact structural JSON response format matching your schema
             classification_schema = types.Schema(
-    type=types.Type.OBJECT,
-    properties={
-        "category": types.Schema(
-            type=types.Type.STRING, 
-            description="The precise department responsible for resolving the citizen complaint.",
-            # Elite, exhaustive, clean department list for CM Dashboard
-            enum=[
-                "Water & Sewage", 
-                "Power & Energy", 
-                "Sanitation & Waste", 
-                "Roads & Infrastructure", 
-                "Public Safety & Security",
-                "Healthcare & Medical",
-                "Public Transit & Traffic",
-                "Education & Schools",
-                "Social Welfare & Pensions",
-                "Governance & Corruption"
-            ]
-        ),
-        "confidence": types.Schema(
-            type=types.Type.NUMBER, 
-            description="Float confidence metric score from 0.0 to 1.0 based on context match."
-        ),
-        "urgency_score": types.Schema(
-            type=types.Type.STRING,
-            description="Criticality tier for CM intervention metrics.",
-            enum=["Low", "Medium", "High", "Critical"]
-        ),
-        "executive_summary": types.Schema(
-            type=types.Type.STRING,
-            description="A strictly 1-sentence, jargon-free summary of the core grievance for quick reading."
-        )
-    },
-    required=["category", "confidence", "urgency_score", "executive_summary"]
-)
-
+                type=types.Type.OBJECT,
+                properties={
+                    "category": types.Schema(type=types.Type.STRING, description="Department like Water, Power, Sanitation, Roads, Security"),
+                    "confidence": types.Schema(type=types.Type.NUMBER, description="Confidence score from 0.0 to 1.0")
+                },
+                required=["category", "confidence"]
+            )
 
             response = await asyncio.to_thread(
                 ai_client.models.generate_content,
                 model='gemini-2.5-flash',
-                contents=f"Classify the department for this citizen issue:\n\"{request.text}\"",
+                contents=f"Classify the target department for this citizen issue text:\n\"{request.text}\"",
                 config=types.GenerateContentConfig(
                     system_instruction="You are a routing classification system for city operations. Return JSON only.",
                     response_mime_type="application/json",
@@ -163,50 +141,60 @@ async def classify_complaint(
             )
             
         except Exception as fallback_err:
-            logger.error(f"Critical fallback failure: {str(fallback_err)}", exc_info=True)
-            raise HTTPException(status_code=500, detail="All classification modules failed.")
- 
+            logger.error(f"[CRITICAL] Both local classifier and Gemini fallback failed: {str(fallback_err)}", exc_info=True)
+            raise HTTPException(status_code=500, detail="All classification engine variations failed.")
+
+
 # ==========================================
-# 2. COLD-START IMMUNE RAG QUERY ROUTE
+# 2. COLD-START IMMUNE RAG QUERY ROUTE (FIXED DI INJECTION)
 # ==========================================
 @complaints_router.post("/rag/query", response_model=RAGResponse)
 async def query_rag(
     request: QueryRequest,
-    service = Depends(lambda: None) # Keeps your injection signatures safe
+    service: ContextRetriever = Depends(get_rag_service) # Re-enabled production DI engine
 ):
     """
-    RAG Route. If the database/FAISS store is empty, it bypasses cold-start limits 
-    by grounding the issue with a Zero-Shot fallback system.
+    RAG Route. Utilizes local ContextRetriever. Pre-renders the answer text 
+    and appends it safely as the first element of the context array payload 
+    to preserve downstream field compatibility with RAGResponse schema restrictions.
     """
     try:
         contexts = []
         
-        # If your vector index service is alive, attempt retrieval safely
+        # 1. Safely extract historical cases via your local retrieval service threadpool
         if service:
             try:
                 res = await asyncio.to_thread(service.get_context, request.query)
-                contexts = [c.get("metadata", {}).get("text", "") for c in res.get("similar_cases", []) if c.get("metadata")]
+                if res and "similar_cases" in res:
+                    contexts = [
+                        c.get("metadata", {}).get("text", "") 
+                        for c in res.get("similar_cases", []) 
+                        if c.get("metadata")
+                    ]
             except Exception as retrieval_err:
-                logger.warning(f"Active vector index lookup failed: {str(retrieval_err)}. Proceeding with zero context.")
+                logger.warning(f"[RAG_RETRIEVAL_WARN] Local vector store lookup skipped: {str(retrieval_err)}")
 
-         # FIX FOR EMPTY OUTPUTS: Provide a safe operational baseline if the vector store is empty
+        # 2. Mitigate cold starts by setting up fallback grounding text
         if not contexts:
             context_str = "No specific system procedures found in local FAISS memory store database (Index Cold Start State)."
-            logger.info("Cold start vector state encountered; using clean zero-shot generation.")
+            logger.info("[RAG_ENGINE] Empty context state encountered. Shifting to standard grounding baseline.")
         else:
             context_str = "\n".join([f"- {c}" for c in contexts])
 
+        # 3. Assemble clear system operational boundaries for Gemini matching
         system_instruction = (
             "You are an expert AI operator managing the City & Facility Operations Dashboard.\n"
             "Your job is to answer incoming queries or process citizen complaints using ONLY the factual context provided below.\n"
             "If the provided context does not contain enough information, state clearly that the database is currently "
-            "empty or missing this configuration, then provide a helpful, generalized resolution process for the citizen.\n"
+            "empty, then provide a helpful, generalized resolution process for the citizen.\n"
             "Do not invent system variables or operational histories.\n\n"
             f"=== SYSTEM CONTEXT AND SOPS ===\n{context_str}"
         )
 
         if not ai_client:
-            raise HTTPException(status_code=500, detail="Gemini Engine API integration is offline.")
+            raise HTTPException(status_code=500, detail="Gemini Engine API client is offline.")
+
+        # 4. Generate the response text within a thread-isolated container lookahead
         response = await asyncio.to_thread(
             ai_client.models.generate_content,
             model='gemini-2.5-flash',
@@ -217,41 +205,43 @@ async def query_rag(
             )
         )
 
+        # 5. Fix Schema Filter Drop: Format generated text elements directly into context array payload
+        # This keeps the exact structure expected by your response model contract
+        response_payload = [f"GENERATED_ANSWER: {response.text}"] + contexts
+
         return RAGResponse(
-            query=request.query,
-            answer=response.text,
-            context=contexts
+            context=response_payload
         )
 
     except Exception as e:
-        logger.error(f"RAG execution failure: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Error during RAG retrieval and generation")
-    
+        logger.error(f"[RAG_CRASH] Execution failure across processing pipelines: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error during RAG retrieval and generation execution phase.")
+
 
 # ==========================================
-# 3. AGENT DECIDE ROUTE
+# 3. AGENT DECIDE ROUTE (FIXED DI INJECTION)
 # ==========================================
 @complaints_router.post("/agent/decide", response_model=AgentDecisionResponse)
 async def agent_decide(
     request: ComplaintRequest,
-    rag_service = Depends(lambda: None),
-    memory_service = Depends(lambda: None),
-    agent_service = Depends(lambda: None),
-    classifier_service = Depends(lambda: None)
+    rag_service: ContextRetriever = Depends(get_rag_service),          # Fixed DI
+    memory_service: FaissMemory = Depends(get_memory_service),         # Fixed DI
+    agent_service: DecisionAgent = Depends(get_agent_service),         # Fixed DI
+    classifier_service: MLInferenceService = Depends(get_classifier_service) # Fixed DI
 ):
     """
-    Combines classification, historical memory, and RAG contexts to determine 
+    Combines local classification, historical memory, and RAG contexts to determine 
     officer assignment instructions.
     """
     try:
-        # Step A: Run classification with a reliable fallback
+        # Step A: Run local classification with safe fallback handling
         try:
             class_res = await classify_complaint(request, service=classifier_service)
             assigned_labels = class_res.labels
         except Exception:
             assigned_labels = ["General Operations"]
 
-        # Step B: Search past context paths
+        # Step B: Secure historical context paths
         contexts = []
         if rag_service:
             try:
@@ -260,7 +250,7 @@ async def agent_decide(
             except Exception:
                 pass
 
-        # Step C: Generate decision with standard fallback parameters if agent service fails
+        # Step C: Generate decision via local agent service
         if agent_service:
             try:
                 decision_payload = await asyncio.to_thread(
@@ -276,7 +266,7 @@ async def agent_decide(
             except Exception:
                 pass
 
-         # Universal system backup decision logic to keep operations running smoothly
+        # Safe programmatic backup if agent execution layer errors out
         target_dept = assigned_labels[0] if assigned_labels else "General Desk"
         return AgentDecisionResponse(
             decision=f"Route ticket automatically to {target_dept} Central Department Handler Pool",
@@ -284,9 +274,8 @@ async def agent_decide(
         )
 
     except Exception as e:
-        logger.error(f"Agent decision pipeline exception: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Error computing agent decision")
-    
+        logger.error(f"[AGENT_DECIDE_CRASH] Primary orchestration pipeline failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error computing automated agent decision matrix rules.")
     
 # ==========================================
 # 4. MEMORY SEARCH ROUTE (PRODUCTION FIX)
@@ -326,7 +315,7 @@ async def search_memory(
 
 
 # ==========================================
-# 5. PIPELINE RUN ROUTE (PRODUCTION FIX)
+# 5. PIPELINE RUN ROUTE (FIXED SCHEMA CONTRACT)
 # ==========================================
 @complaints_router.post("/pipeline/run", response_model=PipelineResponse)
 async def run_pipeline(
@@ -334,34 +323,47 @@ async def run_pipeline(
     background_tasks: BackgroundTasks
 ):
     """
-    Triggers the end-to-end classification, assignment, and vector persistence pipeline.
-    Uses FastAPI BackgroundTasks natively if APScheduler is uninitialized during application bootstrap.
+    Triggers the automated classification, assignment, and vector persistence pipeline.
+    Captures background task IDs to strictly satisfy the PipelineResponse contract.
     """
     try:
         from app.tasks.pipeline import execute_core
         
+        # Enforce tracking string formatting based on ticket references
+        assigned_task_id = f"task_pipeline_{request.ticket_id}"
+        
         try:
             from app.main import scheduler
-            # Append ticket run execution payload directly onto APScheduler instance
-            scheduler.add_job(execute_core, args=[request.ticket_id])
-            logger.info(f"Successfully added ticket pipeline execution to APScheduler: {request.ticket_id}")
+            # Append execution payload directly onto your active APScheduler instance
+            job = scheduler.add_job(
+                execute_core, 
+                args=[request.ticket_id],
+                id=assigned_task_id,
+                replace_existing=True
+            )
+            # Use the registered job id string explicitly
+            assigned_task_id = str(job.id)
+            logger.info(f"[PIPELINE_SCHEDULER] Task registered via APScheduler. ID: {assigned_task_id}")
+            
         except Exception as scheduler_err:
-            logger.warning(f"APScheduler context failed ({str(scheduler_err)}). Falling back to FastAPI native BackgroundTasks...")
-            # Native safe threadpool fallback to bypass server crashes
+            logger.warning(
+                f"[PIPELINE_SCHEDULER_WARN] APScheduler unavailable ({str(scheduler_err)}). "
+                "Switching to native FastAPI BackgroundTasks worker..."
+            )
+            # Safe local async container threadpool fallback
             background_tasks.add_task(execute_core, request.ticket_id)
-            logger.info(f"Successfully dispatched pipeline execution via BackgroundTasks: {request.ticket_id}")
+            logger.info(f"[PIPELINE_WORKER] Task registered via BackgroundTasks. ID: {assigned_task_id}")
         
+        # FIX: Construct object using only the keys allowed by your exact Pydantic schema
         return PipelineResponse(
-            status="accepted",
-            message="Pipeline orchestration task registered successfully.",
-            ticket_id=request.ticket_id
+            task_id=assigned_task_id
         )
         
     except Exception as e:
-        logger.error(f"Critical pipeline dispatch error for Ticket {request.ticket_id}: {str(e)}", exc_info=True)
+        logger.error(f"[PIPELINE_CRITICAL_ERR] Validation or submission failed for ticket {request.ticket_id}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500, 
-            detail=f"Failed to submit ticket execution pipeline background worker process: {str(e)}"
+            detail="Failed to submit target execution pipeline background tracking worker process."
         )
 
 
