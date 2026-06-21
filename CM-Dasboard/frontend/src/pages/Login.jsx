@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
@@ -7,9 +7,16 @@ import { Mail, Lock, ArrowRight, AlertCircle, UserCircle2 } from 'lucide-react';
 import AnimatedPage from '../components/AnimatedPage';
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, user, role } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Auto-redirect if already logged in
+  useEffect(() => {
+    if (user && role) {
+      navigate(role === 'admin' ? '/admin' : '/dashboard', { replace: true });
+    }
+  }, [user, role, navigate]);
   
   const [form, setForm] = useState({ email: '', password: '' });
   const [loading, setLoading] = useState(false);

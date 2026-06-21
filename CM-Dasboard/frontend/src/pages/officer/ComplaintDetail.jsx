@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { trackComplaint, updateComplaintStatus } from '../../services/api'; // using trackComplaint to get by ID
+import { trackComplaint, updateComplaintStatus } from '../../services/api';
 import StatusBadge from '../../components/StatusBadge';
 import Loader from '../../components/Loader';
 import { ArrowLeft, MapPin, Clock, User, CheckCircle, AlertTriangle, Paperclip, Save } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const ComplaintDetail = () => {
   const { id } = useParams();
@@ -27,7 +28,7 @@ const ComplaintDetail = () => {
       setLoading(true);
       const data = await trackComplaint(id);
       setComplaint(data);
-      setNewStatus(data.status || 'pending');
+      setNewStatus(data.status || 'SUBMITTED');
     } catch (err) {
       setError('Failed to fetch complaint details.');
     } finally {
@@ -39,11 +40,10 @@ const ComplaintDetail = () => {
     try {
       setUpdating(true);
       await updateComplaintStatus(id, newStatus);
-      // Optimistic UI update or re-fetch
       setComplaint({ ...complaint, status: newStatus });
-      alert('Status updated successfully!');
+      toast.success('Status updated successfully!');
     } catch (err) {
-      alert('Failed to update status.');
+      toast.error('Failed to update status.');
     } finally {
       setUpdating(false);
     }
@@ -56,11 +56,20 @@ const ComplaintDetail = () => {
       <AlertTriangle className="w-8 h-8 mx-auto mb-2" />
       <h3 className="text-lg font-bold">Error</h3>
       <p>{error || 'Complaint not found.'}</p>
-      <button onClick={() => navigate('/officer')} className="mt-4 px-4 py-2 bg-white text-rose-600 rounded-lg border border-rose-200">
+      <button onClick={() => navigate('/admin/complaints')} className="mt-4 px-4 py-2 bg-white text-rose-600 rounded-lg border border-rose-200 font-medium hover:bg-rose-50 transition-colors">
         Back to List
       </button>
     </div>
   );
+
+  const getStepStatus = (step) => {
+    const statusOrder = ['SUBMITTED', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED'];
+    const current = statusOrder.indexOf(complaint.status?.toUpperCase());
+    const target = statusOrder.indexOf(step);
+    if (target <= current) return 'completed';
+    if (target === current + 1) return 'current';
+    return 'upcoming';
+  };
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-fade-in">
@@ -68,14 +77,14 @@ const ComplaintDetail = () => {
       <div className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-slate-200">
         <div className="flex items-center gap-4">
           <button 
-            onClick={() => navigate('/officer')}
+            onClick={() => navigate('/admin/complaints')}
             className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="text-xl font-bold text-slate-800">Ticket #{complaint.id || id}</h1>
-            <p className="text-sm text-slate-500">{complaint.title || 'Untitled Complaint'}</p>
+            <h1 className="text-xl font-bold text-slate-800">Ticket: {complaint.ticket_id || id}</h1>
+            <p className="text-sm text-slate-500">{complaint.title || complaint.category || 'Complaint Details'}</p>
           </div>
         </div>
         <StatusBadge status={complaint.status} />
@@ -88,17 +97,17 @@ const ComplaintDetail = () => {
             <h2 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-2">Complaint Details</h2>
             
             <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">
-              {complaint.description}
+              {complaint.description || 'No description provided.'}
             </p>
 
             <div className="grid grid-cols-2 gap-4 pt-4">
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-                <div className="text-xs font-semibold text-slate-400 uppercase mb-1 flex items-center gap-1"><MapPin className="w-3 h-3"/> Location</div>
-                <div className="font-medium text-slate-800">{complaint.district || complaint.location || 'N/A'}</div>
+                <div className="text-xs font-semibold text-slate-400 uppercase mb-1 flex items-center gap-1"><MapPin className="w-3 h-3"/> District</div>
+                <div className="font-medium text-slate-800">{complaint.district || 'N/A'}</div>
               </div>
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-                <div className="text-xs font-semibold text-slate-400 uppercase mb-1 flex items-center gap-1"><User className="w-3 h-3"/> Complainant</div>
-                <div className="font-medium text-slate-800">User #{complaint.complainant_id || 'Anonymous'}</div>
+                <div className="text-xs font-semibold text-slate-400 uppercase mb-1 flex items-center gap-1"><User className="w-3 h-3"/> Citizen</div>
+                <div className="font-medium text-slate-800">{complaint.citizen_name || 'Anonymous'}</div>
               </div>
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
                 <div className="text-xs font-semibold text-slate-400 uppercase mb-1 flex items-center gap-1"><Clock className="w-3 h-3"/> Submitted On</div>
@@ -109,31 +118,33 @@ const ComplaintDetail = () => {
                 <div className="font-medium text-slate-800 capitalize">{complaint.priority || 'Normal'}</div>
               </div>
             </div>
-            
-            {/* Attachments Mock */}
-            <div className="pt-4 border-t border-slate-100">
-              <h3 className="text-sm font-semibold text-slate-800 mb-3">Attachments</h3>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-100 cursor-pointer transition-colors">
-                  <Paperclip className="w-4 h-4 text-slate-400" />
-                  <span>evidence_photo.jpg</span>
-                </div>
-              </div>
-            </div>
           </div>
 
-          {/* Timeline reuse */}
+          {/* Progress Timeline */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
             <h2 className="text-lg font-bold text-slate-800 mb-6">Progress Timeline</h2>
             <div className="flex items-center gap-2 w-full max-w-lg mx-auto">
-                <CheckCircle className="w-6 h-6 text-emerald-500" />
-                <div className={`flex-1 h-1 ${complaint.status?.toLowerCase() !== 'pending' ? 'bg-emerald-500' : 'bg-slate-200'}`}></div>
-                <div className={`w-4 h-4 rounded-full ${complaint.status?.toLowerCase() !== 'pending' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
-                <div className={`flex-1 h-1 ${complaint.status?.toLowerCase() === 'resolved' ? 'bg-emerald-500' : 'bg-slate-200'}`}></div>
-                <div className={`w-4 h-4 rounded-full ${complaint.status?.toLowerCase() === 'resolved' ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
+              {['SUBMITTED', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED'].map((step, i, arr) => {
+                const status = getStepStatus(step);
+                return (
+                  <React.Fragment key={step}>
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 transition-colors ${
+                      status === 'completed' ? 'bg-emerald-500' : status === 'current' ? 'bg-blue-500 ring-4 ring-blue-100' : 'bg-slate-300'
+                    }`}>
+                      {status === 'completed' && <CheckCircle className="w-5 h-5 text-white" />}
+                    </div>
+                    {i < arr.length - 1 && (
+                      <div className={`flex-1 h-1 rounded-full transition-colors ${
+                        status === 'completed' ? 'bg-emerald-500' : 'bg-slate-200'
+                      }`} />
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </div>
-            <div className="flex justify-between w-full max-w-lg mx-auto mt-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <div className="flex justify-between w-full max-w-lg mx-auto mt-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">
               <span>Submitted</span>
+              <span>Assigned</span>
               <span>In Progress</span>
               <span>Resolved</span>
             </div>
@@ -150,28 +161,30 @@ const ComplaintDetail = () => {
               <select 
                 value={newStatus}
                 onChange={(e) => setNewStatus(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none p-2.5 text-slate-700"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none p-2.5 text-slate-700 font-medium"
               >
-                <option value="pending">Pending</option>
-                <option value="in progress">In Progress</option>
-                <option value="resolved">Resolved</option>
+                <option value="SUBMITTED">Submitted</option>
+                <option value="ASSIGNED">Assigned</option>
+                <option value="IN_PROGRESS">In Progress</option>
+                <option value="RESOLVED">Resolved</option>
+                <option value="REJECTED">Rejected</option>
               </select>
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700 block">Officer Remarks</label>
+              <label className="text-sm font-semibold text-slate-700 block">Admin Remarks</label>
               <textarea 
                 rows="4"
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
                 placeholder="Add internal notes or resolution remarks..."
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none p-3 text-slate-700 resize-none text-sm"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none p-3 text-slate-700 resize-none text-sm"
               ></textarea>
             </div>
 
             <div className="space-y-2">
               <label className="text-sm font-semibold text-slate-700 block">Upload Proof</label>
-              <div className="border-2 border-dashed border-slate-200 rounded-lg p-4 text-center hover:bg-slate-50 transition-colors cursor-pointer">
+              <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center hover:bg-slate-50 transition-colors cursor-pointer">
                 <Paperclip className="w-5 h-5 text-slate-400 mx-auto mb-1" />
                 <span className="text-xs text-slate-500">Click to upload files</span>
               </div>
@@ -180,10 +193,10 @@ const ComplaintDetail = () => {
             <button 
               onClick={handleUpdate}
               disabled={updating || newStatus === complaint.status}
-              className={`w-full flex items-center justify-center gap-2 py-3 rounded-lg font-bold transition-all ${
+              className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all duration-200 ${
                 updating || newStatus === complaint.status 
                   ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                  : 'bg-primary-600 text-white hover:bg-primary-700 shadow-md hover:shadow-lg active:scale-95'
+                  : 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg hover:shadow-xl hover:-translate-y-0.5 active:scale-[0.98]'
               }`}
             >
               <Save className="w-5 h-5" />

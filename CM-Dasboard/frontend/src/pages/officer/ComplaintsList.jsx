@@ -4,6 +4,8 @@ import ComplaintTable from '../../components/officer/ComplaintTable';
 import FilterBar from '../../components/officer/FilterBar';
 import Pagination from '../../components/officer/Pagination';
 import Loader from '../../components/Loader';
+import { getSocket } from '../../services/socket';
+import toast from 'react-hot-toast';
 
 const ComplaintsList = () => {
   const [complaints, setComplaints] = useState([]);
@@ -19,6 +21,20 @@ const ComplaintsList = () => {
 
   useEffect(() => {
     fetchComplaints();
+  }, []);
+
+  // Real-time: auto-refresh when new complaint arrives
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleNewComplaint = (data) => {
+      toast.success(`New complaint received: ${data.ticket_id}`);
+      fetchComplaints();
+    };
+
+    socket.on('newComplaint', handleNewComplaint);
+    return () => socket.off('newComplaint', handleNewComplaint);
   }, []);
 
   const fetchComplaints = async () => {
