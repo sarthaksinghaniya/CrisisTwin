@@ -22,3 +22,11 @@ class AgentResponse(AgentBase):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+class AgentAssignRequest(BaseModel):
+    ticket_id: str
+
+
+class AgentDecisionResponse(BaseModel):
+    decision: str
+    reasoning: str

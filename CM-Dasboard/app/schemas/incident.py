@@ -7,8 +7,10 @@ class ComplaintRequest(BaseModel):
     text: str = Field(..., description="The text of the complaint to analyze", example="The AC in my room is leaking water.")
 
 class ClassificationResponse(BaseModel):
-    labels: List[str] = Field(..., description="Predicted categories", example=["maintenance", "water_leak"])
-    confidence: float = Field(..., description="Confidence score", example=0.95)
+    category: str
+    department: str
+    priority: str
+    confidence: float
 
 class QueryRequest(BaseModel):
     query: str = Field(..., description="Search query", example="How to fix AC leak")

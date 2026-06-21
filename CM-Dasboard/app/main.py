@@ -1,7 +1,6 @@
 import logging
 import asyncio
-from google import genai
-from google.genai import types
+import json
 import os
 
 
@@ -59,91 +58,88 @@ def get_memory_service() -> FaissMemory:
 def get_agent_service() -> DecisionAgent:
     return DecisionAgent()
 
-# ==========================================
-# GEMINI ENGINE GLOBAL CLIENT CONFIGURATION
-# ==========================================
-api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
-if not api_key:
-    logger.error("CRITICAL: Neither GEMINI_API_KEY nor GOOGLE_API_KEY is defined in the environment context.")
-    ai_client = None 
-else:
-    ai_client = genai.Client(api_key=api_key)
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+# Groq SDK Client Import
+from groq import Groq
+
+# Core project system dependencies 
+from app.core.config import settings
+from app.schemas.incident import ComplaintRequest, ClassificationResponse
+from app.services.ml.inference import MLInferenceService
+
+logger = logging.getLogger("uvicorn.error")
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.session import get_db
+
+from app.models.complaint import Complaint
+
+from app.schemas.agent import (
+    AgentAssignRequest,
+    AgentDecisionResponse
+)
+
+from app.services.routing.officer_router import OfficerRouter
+
+# ==========================================
+# GROQ ENGINE GLOBAL CLIENT CONFIGURATION
+# ==========================================
+GROQ_CLASSIFIER_MODEL = "llama-3.1-8b-instant"
+GROQ_AGENT_MODEL = "openai/gpt-oss-120b"
+
+groq_api_key = os.getenv("GROQ_API_KEY")
+groq_client = Groq(api_key=groq_api_key) if groq_api_key else None
+if not groq_client:
+    logger.error("CRITICAL: GROQ_API_KEY environment variable is not defined.")
+ 
 
 # -----------------------------------------------------------------------------
 # ROUTERS
 # -----------------------------------------------------------------------------
 complaints_router = APIRouter(prefix=f"{settings.API_V1_STR}/complaints", tags=["Complaints"])
 
+
 # ==========================================
-# 1. CLASSIFY COMPLAINT ROUTE (FIXED DI INJECTION)
+# 1. CLASSIFY COMPLAINT ROUTE (GROQ FALLBACK)
 # ==========================================
-@complaints_router.post("/classify", response_model=ClassificationResponse)
+from app.services.ai.groq_classifier import GroqClassifier
+
+
+@complaints_router.post(
+    "/classify",
+    response_model=ClassificationResponse
+)
 async def classify_complaint(
-    request: ComplaintRequest,
-    service: MLInferenceService = Depends(get_classifier_service) # Fixed: Kept original DI intact
+    request: ComplaintRequest
 ):
-    """
-    Classifies complaints using the local MLInferenceService pipeline. 
-    If the local model fails, it automatically runs the Gemini fallback.
-    """
     try:
-        if service is None:
-            raise ValueError("Local MLInferenceService dependency returned None.")
-            
-        # Execute the primary local service prediction model in a safe threadpool
-        res = await asyncio.to_thread(service.predict, request.text)
+
+        classifier = GroqClassifier()
+
+        result = await asyncio.to_thread(
+            classifier.classify,
+            request.text
+        )
+
         return ClassificationResponse(
-            labels=res.get("category_pred", []), 
-            confidence=res.get("confidence_score", 0.0)
+            category=result["category"],
+            department=result["department"],
+            priority=result["priority"],
+            confidence=result["confidence"]
         )
-        
-    except Exception as local_exception:
-        logger.warning(
-            f"[CLASSIFY_FALLBACK] Local service encountered an issue ({str(local_exception)}). "
-            "Routing request to live Gemini fallback engine..."
+
+    except Exception as e:
+        logger.exception("Classification failed")
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Classification failed: {str(e)}"
         )
-        
-        if not ai_client:
-            raise HTTPException(
-                status_code=500, 
-                detail="Local classification failed and live Gemini GenAI Client is offline."
-            )
-
-        try:
-            # Enforce an exact structural JSON response format matching your schema
-            classification_schema = types.Schema(
-                type=types.Type.OBJECT,
-                properties={
-                    "category": types.Schema(type=types.Type.STRING, description="Department like Water, Power, Sanitation, Roads, Security"),
-                    "confidence": types.Schema(type=types.Type.NUMBER, description="Confidence score from 0.0 to 1.0")
-                },
-                required=["category", "confidence"]
-            )
-
-            response = await asyncio.to_thread(
-                ai_client.models.generate_content,
-                model='gemini-2.5-flash',
-                contents=f"Classify the target department for this citizen issue text:\n\"{request.text}\"",
-                config=types.GenerateContentConfig(
-                    system_instruction="You are a routing classification system for city operations. Return JSON only.",
-                    response_mime_type="application/json",
-                    response_schema=classification_schema,
-                    temperature=0.1
-                )
-            )
-            
-            import json
-            payload = json.loads(response.text)
-            return ClassificationResponse(
-                labels=[payload.get("category", "General")],
-                confidence=payload.get("confidence", 0.95)
-            )
-            
-        except Exception as fallback_err:
-            logger.error(f"[CRITICAL] Both local classifier and Gemini fallback failed: {str(fallback_err)}", exc_info=True)
-            raise HTTPException(status_code=500, detail="All classification engine variations failed.")
-
 
 # ==========================================
 # 2. COLD-START IMMUNE RAG QUERY ROUTE (FIXED DI INJECTION)
@@ -221,61 +217,79 @@ async def query_rag(
 # ==========================================
 # 3. AGENT DECIDE ROUTE (FIXED DI INJECTION)
 # ==========================================
-@complaints_router.post("/agent/decide", response_model=AgentDecisionResponse)
+@complaints_router.post(
+    "/agent/decide",
+    response_model=AgentDecisionResponse
+)
 async def agent_decide(
-    request: ComplaintRequest,
-    rag_service: ContextRetriever = Depends(get_rag_service),          # Fixed DI
-    memory_service: FaissMemory = Depends(get_memory_service),         # Fixed DI
-    agent_service: DecisionAgent = Depends(get_agent_service),         # Fixed DI
-    classifier_service: MLInferenceService = Depends(get_classifier_service) # Fixed DI
+    request: AgentAssignRequest,
+    db: AsyncSession = Depends(get_db)
 ):
-    """
-    Combines local classification, historical memory, and RAG contexts to determine 
-    officer assignment instructions.
-    """
     try:
-        # Step A: Run local classification with safe fallback handling
-        try:
-            class_res = await classify_complaint(request, service=classifier_service)
-            assigned_labels = class_res.labels
-        except Exception:
-            assigned_labels = ["General Operations"]
 
-        # Step B: Secure historical context paths
-        contexts = []
-        if rag_service:
-            try:
-                rag_result = await asyncio.to_thread(rag_service.get_context, request.text)
-                contexts = rag_result.get("similar_cases", [])
-            except Exception:
-                pass
-
-        # Step C: Generate decision via local agent service
-        if agent_service:
-            try:
-                decision_payload = await asyncio.to_thread(
-                    agent_service.process, 
-                    text=request.text, 
-                    context=contexts, 
-                    ml_predictions=assigned_labels
-                )
-                return AgentDecisionResponse(
-                    decision=decision_payload.get("decision", "Assign to General Queue"),
-                    reasoning=decision_payload.get("reasoning", "Processed by core agent engine matrix.")
-                )
-            except Exception:
-                pass
-
-        # Safe programmatic backup if agent execution layer errors out
-        target_dept = assigned_labels[0] if assigned_labels else "General Desk"
-        return AgentDecisionResponse(
-            decision=f"Route ticket automatically to {target_dept} Central Department Handler Pool",
-            reasoning="System fallback auto-triggered because the agent execution layer was unreachable."
+        complaint_stmt = (
+            select(Complaint)
+            .where(
+                Complaint.ticket_id == request.ticket_id,
+                Complaint.is_deleted == False
+            )
         )
 
+        complaint_result = await db.execute(
+            complaint_stmt
+        )
+
+        complaint = complaint_result.scalar_one_or_none()
+
+        if not complaint:
+            raise HTTPException(
+                status_code=404,
+                detail="Complaint not found"
+            )
+
+        officer = await OfficerRouter.assign_officer(
+            db,
+            complaint
+        )
+
+        if not officer:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"No officer available "
+                    f"for department {complaint.department}"
+                )
+            )
+
+        complaint.assigned_to = officer.id
+
+        await db.commit()
+
+        await db.refresh(complaint)
+
+        return AgentDecisionResponse(
+            decision=f"Assigned to {officer.name}",
+            reasoning=(
+                f"Department={officer.department}, "
+                f"District={officer.district}"
+            )
+        )
+
+    except HTTPException:
+        raise
+
     except Exception as e:
-        logger.error(f"[AGENT_DECIDE_CRASH] Primary orchestration pipeline failed: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Error computing automated agent decision matrix rules.")
+
+        await db.rollback()
+
+        logger.exception(
+            "Officer assignment failed"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
     
 # ==========================================
 # 4. MEMORY SEARCH ROUTE (PRODUCTION FIX)

@@ -18,3 +18,6 @@ class AnalyticsSnapshotResponse(BaseModel):
     top_districts: Dict[str, int] = Field(..., description="Top districts count descending")
     top_categories: Dict[str, int] = Field(..., description="Top categories count descending")
     officer_ranking: List[OfficerRankItem] = Field(..., description="Officer resolved ranking descending")
+
+
+
