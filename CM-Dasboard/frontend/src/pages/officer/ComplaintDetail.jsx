@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { trackComplaint, updateComplaintStatus } from '../../services/api';
+import api, { trackComplaint, updateComplaintStatus } from '../../services/api';
 import StatusBadge from '../../components/StatusBadge';
 import Loader from '../../components/Loader';
 import { ArrowLeft, MapPin, Clock, User, CheckCircle, AlertTriangle, Paperclip, Save } from 'lucide-react';
@@ -18,10 +18,23 @@ const ComplaintDetail = () => {
   const [newStatus, setNewStatus] = useState('');
   const [remarks, setRemarks] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [officers, setOfficers] = useState([]);
+  const [assignedOfficer, setAssignedOfficer] = useState('');
 
   useEffect(() => {
     fetchComplaintDetail();
+    fetchOfficers();
   }, [id]);
+
+  const fetchOfficers = async () => {
+    try {
+      const res = await api.get('/users');
+      const filtered = res.data.filter(u => u.role === 'OFFICER' || u.role === 'ADMIN');
+      setOfficers(filtered);
+    } catch (err) {
+      console.error('Failed to fetch officers:', err);
+    }
+  };
 
   const fetchComplaintDetail = async () => {
     try {
@@ -32,6 +45,7 @@ const ComplaintDetail = () => {
       if (initialStatus === 'PROCESSING') initialStatus = 'IN_PROGRESS';
       if (initialStatus === 'CLOSED') initialStatus = 'REJECTED';
       setNewStatus(initialStatus);
+      setAssignedOfficer(data.assigned_to || '');
     } catch (err) {
       setError('Failed to fetch complaint details.');
     } finally {
@@ -42,8 +56,8 @@ const ComplaintDetail = () => {
   const handleUpdate = async () => {
     try {
       setUpdating(true);
-      await updateComplaintStatus(id, newStatus, remarks);
-      setComplaint({ ...complaint, status: newStatus });
+      await updateComplaintStatus(id, newStatus, remarks, assignedOfficer || "");
+      setComplaint({ ...complaint, status: newStatus, assigned_to: assignedOfficer || null });
       toast.success('Status updated successfully!');
     } catch (err) {
       toast.error('Failed to update status.');
@@ -175,6 +189,22 @@ const ComplaintDetail = () => {
             </div>
 
             <div className="space-y-2">
+              <label className="text-sm font-semibold text-slate-700 block">Assign Officer</label>
+              <select 
+                value={assignedOfficer}
+                onChange={(e) => setAssignedOfficer(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none p-2.5 text-slate-700 font-medium"
+              >
+                <option value="">-- Select Officer --</option>
+                {officers.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name} ({o.role})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
               <label className="text-sm font-semibold text-slate-700 block">Admin Remarks</label>
               <textarea 
                 rows="4"
@@ -195,9 +225,9 @@ const ComplaintDetail = () => {
 
             <button 
               onClick={handleUpdate}
-              disabled={updating || newStatus === (complaint.status === 'PROCESSING' ? 'IN_PROGRESS' : complaint.status === 'CLOSED' ? 'REJECTED' : complaint.status)}
+              disabled={updating || (newStatus === (complaint.status === 'PROCESSING' ? 'IN_PROGRESS' : complaint.status === 'CLOSED' ? 'REJECTED' : complaint.status) && assignedOfficer === (complaint.assigned_to || ''))}
               className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all duration-200 ${
-                updating || newStatus === (complaint.status === 'PROCESSING' ? 'IN_PROGRESS' : complaint.status === 'CLOSED' ? 'REJECTED' : complaint.status)
+                updating || (newStatus === (complaint.status === 'PROCESSING' ? 'IN_PROGRESS' : complaint.status === 'CLOSED' ? 'REJECTED' : complaint.status) && assignedOfficer === (complaint.assigned_to || ''))
                   ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                   : 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg hover:shadow-xl hover:-translate-y-0.5 active:scale-[0.98]'
               }`}

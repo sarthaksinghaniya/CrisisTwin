@@ -78,6 +78,7 @@ class ComplaintTrackingService:
                 "title": complaint.title,
                 "description": complaint.description,
                 "assigned_officer": complaint.assigned_officer.name if complaint.assigned_officer else None,
+                "assigned_to": complaint.assigned_to,
                 "created_at": complaint.created_at,
                 "updated_at": complaint.updated_at,
                 "attachments": attachments,

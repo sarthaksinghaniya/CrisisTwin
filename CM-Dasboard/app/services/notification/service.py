@@ -1,4 +1,5 @@
 import logging
+import uuid
 from datetime import datetime, timezone, timedelta
 from fastapi import BackgroundTasks
 from sqlalchemy.future import select
@@ -11,7 +12,7 @@ from app.services.email.smtp import async_send_notification_email
 
 logger = logging.getLogger(__name__)
 
-async def notification_background_job(user_id: int, message: str, subject: str) -> None:
+async def notification_background_job(user_id: uuid.UUID, message: str, subject: str) -> None:
     """
     Background job executed via BackgroundTasks.
     Validates user active status, checks for duplicate/storm alerts,
@@ -96,7 +97,7 @@ class NotificationService:
 
     @staticmethod
     def dispatch_assigned_notification(
-        user_id: int,
+        user_id: uuid.UUID,
         ticket_id: str,
         background_tasks: BackgroundTasks
     ) -> None:
@@ -106,7 +107,7 @@ class NotificationService:
 
     @staticmethod
     def dispatch_status_changed_notification(
-        user_id: int,
+        user_id: uuid.UUID,
         ticket_id: str,
         new_status: str,
         background_tasks: BackgroundTasks
@@ -117,7 +118,7 @@ class NotificationService:
 
     @staticmethod
     def dispatch_escalation_notification(
-        user_id: int,
+        user_id: uuid.UUID,
         ticket_id: str,
         background_tasks: BackgroundTasks
     ) -> None:
@@ -127,7 +128,7 @@ class NotificationService:
 
     @staticmethod
     def dispatch_resolved_notification(
-        user_id: int,
+        user_id: uuid.UUID,
         ticket_id: str,
         background_tasks: BackgroundTasks
     ) -> None:

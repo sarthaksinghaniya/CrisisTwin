@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List
@@ -10,12 +10,14 @@ from app.models.complaint_update import ComplaintUpdate
 from app.services.storage.attachment import AttachmentService
 from app.schemas.complaint import Complaint as ComplaintSchema
 from app.models.user import User
+from app.services.notification.service import NotificationService
 
 router = APIRouter()
 
 class StatusUpdateRequest(BaseModel):
     status: str
     note: str = None
+    assigned_to: str = None
 
 @router.get("/complaints", response_model=List[ComplaintSchema])
 async def get_all_complaints(
@@ -31,6 +33,7 @@ async def get_all_complaints(
 async def update_complaint_status(
     ticket_id: str,
     payload: StatusUpdateRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(Admin))
 ):
@@ -52,7 +55,25 @@ async def update_complaint_status(
     if not complaint:
         raise HTTPException(status_code=404, detail="Complaint not found")
 
+    old_status = complaint.status
+    old_assigned_to = complaint.assigned_to
+
     complaint.status = new_status
+
+    assigned_changed = False
+    if payload.assigned_to is not None:
+        if payload.assigned_to == "":
+            new_assigned_to = None
+        else:
+            try:
+                import uuid
+                new_assigned_to = uuid.UUID(payload.assigned_to)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid assigned_to UUID")
+        
+        if old_assigned_to != new_assigned_to:
+            complaint.assigned_to = new_assigned_to
+            assigned_changed = True
 
     db_update = ComplaintUpdate(
         complaint_id=complaint.id,
@@ -74,8 +95,35 @@ async def update_complaint_status(
                 "ticket_id": ticket_id,
                 "status": new_status.value
             }, room=str(citizen_user.id))
+            
+            # Dispatch citizen notification on status change
+            if new_status != old_status:
+                if new_status == ComplaintStatus.RESOLVED:
+                    NotificationService.dispatch_resolved_notification(
+                        user_id=citizen_user.id,
+                        ticket_id=ticket_id,
+                        background_tasks=background_tasks
+                    )
+                else:
+                    NotificationService.dispatch_status_changed_notification(
+                        user_id=citizen_user.id,
+                        ticket_id=ticket_id,
+                        new_status=new_status.value,
+                        background_tasks=background_tasks
+                    )
     except Exception as e:
-        print(f"Failed to emit statusUpdated socket event: {e}")
+        print(f"Failed to emit statusUpdated or dispatch status notifications: {e}")
+
+    # Dispatch assignment notification to the assigned officer
+    if assigned_changed and complaint.assigned_to is not None:
+        try:
+            NotificationService.dispatch_assigned_notification(
+                user_id=complaint.assigned_to,
+                ticket_id=ticket_id,
+                background_tasks=background_tasks
+            )
+        except Exception as e:
+            print(f"Failed to dispatch assignment notification: {e}")
 
     return {"msg": "Status updated successfully", "status": new_status.value}
 

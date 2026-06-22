@@ -84,10 +84,10 @@ class PipelineEngine:
     @staticmethod
     async def transition_to_resolved(
         ticket_id: str,
-        assigned_to: Optional[int],
+        assigned_to: Optional[Any],
         session: AsyncSession,
     ) -> Optional[Complaint]:
-        """PROCESSING → ASSIGNED (if officer) or RESOLVED."""
+        """PROCESSING → ASSIGNED (if officer) or SUBMITTED (awaiting manual assignment)."""
         query = select(Complaint).filter(Complaint.ticket_id == ticket_id)
         result = await session.execute(query)
         complaint = result.scalars().first()
@@ -97,14 +97,20 @@ class PipelineEngine:
 
         old = complaint.status
         complaint.status = (
-            ComplaintStatus.ASSIGNED if assigned_to else ComplaintStatus.RESOLVED
+            ComplaintStatus.ASSIGNED if assigned_to else ComplaintStatus.SUBMITTED
         )
         PipelineEngine._log_transition(ticket_id, old.value, complaint.status.value)
+
+        note_text = (
+            "AI Pipeline completed: Assigned to officer."
+            if assigned_to
+            else "AI Pipeline completed: No matching officer found. Awaiting manual assignment."
+        )
 
         session.add(ComplaintUpdate(
             complaint_id=complaint.id,
             status=complaint.status.value,
-            note="AI Pipeline execution completed successfully.",
+            note=note_text,
             updated_by=None,
         ))
         await session.commit()

@@ -329,7 +329,13 @@ async def get_my_complaints(
     """
     # In a real app, you might use current_user.email to filter or link citizen_email.
     # We will assume current_user.email matches the citizen_email.
-    query = select(Complaint).filter(Complaint.citizen_email == current_user.email).order_by(Complaint.created_at.desc())
+    from sqlalchemy.orm import selectinload
+    query = (
+        select(Complaint)
+        .filter(Complaint.citizen_email == current_user.email)
+        .options(selectinload(Complaint.assigned_officer))
+        .order_by(Complaint.created_at.desc())
+    )
     result = await db.execute(query)
     complaints = result.scalars().all()
     
@@ -338,14 +344,19 @@ async def get_my_complaints(
     for c in complaints:
         tracking_data_list.append({
             "ticket_id": c.ticket_id,
-            "status": c.status.value,
+            "status": c.status,
             "category": c.category,
             "department": c.department,
-            "priority": c.priority.value,
+            "priority": c.priority,
             "created_at": c.created_at,
+            "updated_at": c.updated_at,
+            "title": c.title,
+            "description": c.description,
+            "assigned_officer": c.assigned_officer.name if c.assigned_officer else None,
             "assigned_to": c.assigned_to,
-            "citizen_name": c.citizen_name,
-            "district": c.district
+            "district": c.district,
+            "attachments": [],
+            "timeline": []
         })
         
     return tracking_data_list

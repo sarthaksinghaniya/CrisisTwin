@@ -126,7 +126,7 @@ const Home = () => {
                 
                 <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm inline-block w-full max-w-sm mt-4">
                   <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Your Ticket ID</p>
-                  <p className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">{successData.id}</p>
+                  <p className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">{successData.ticket_id}</p>
                   <p className="text-xs text-slate-400 mt-2">Please save this ID to track your complaint status.</p>
                 </div>
 

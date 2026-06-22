@@ -76,7 +76,13 @@ api.interceptors.response.use(
 // We pass config explicitly so that React Query can inject an AbortSignal
 
 export const submitComplaint = async (data, config = {}) => {
-  const response = await api.post('/complaints/', data, config);
+  const response = await api.post('/complaints/', data, {
+    ...config,
+    headers: {
+      ...config.headers,
+      'Content-Type': 'multipart/form-data',
+    },
+  });
   return response.data;
 };
 
@@ -90,8 +96,8 @@ export const getOfficerComplaints = async (config = {}) => {
   return response.data;
 };
 
-export const updateComplaintStatus = async (id, status, note = null, config = {}) => {
-  const response = await api.patch(`/admin/complaints/${id}`, { status, note }, config);
+export const updateComplaintStatus = async (id, status, note = null, assignedTo = null, config = {}) => {
+  const response = await api.patch(`/admin/complaints/${id}`, { status, note, assigned_to: assignedTo }, config);
   return response.data;
 };
 

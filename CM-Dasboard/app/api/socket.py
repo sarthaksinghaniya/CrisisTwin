@@ -31,11 +31,11 @@ async def connect(sid, environ, auth):
             session["role"] = role
             
         # Join user-specific room
-        sio.enter_room(sid, user_id)
+        await sio.enter_room(sid, user_id)
         
         # Join admin broadcast room
         if role == "ADMIN":
-            sio.enter_room(sid, "admins")
+            await sio.enter_room(sid, "admins")
             
         logger.info(f"Socket connected: {sid} (User: {user_id}, Role: {role})")
         
